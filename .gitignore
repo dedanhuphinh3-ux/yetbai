@@ -1,0 +1,8 @@
+__pycache__/
+*.pyc
+.env
+*.key
+.api_key
+.openai_key
+uploads/
+*.srt
