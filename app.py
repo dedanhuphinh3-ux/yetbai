@@ -214,16 +214,17 @@ def enhance_with_gpt_image(image_path: str, prompt: str = "") -> str:
 
 @lru_cache(maxsize=1)
 def load_realesrgan_runtime():
+    import sys
     import torch
+    try:
+        import torchvision.transforms._functional_tensor as _ft
+        sys.modules.setdefault("torchvision.transforms.functional_tensor", _ft)
+    except Exception:
+        pass
     from basicsr.archs.rrdbnet_arch import RRDBNet
     from basicsr.utils.download_util import load_file_from_url
     from realesrgan import RealESRGANer
     from realesrgan.archs.srvgg_arch import SRVGGNetCompact
-
-    tv_dir = Path(torch.__file__).resolve().parent.parent / "torchvision" / "transforms"
-    shim = tv_dir / "functional_tensor.py"
-    if not shim.exists():
-        shim.write_text("from ._functional_tensor import *\n", encoding="utf-8")
 
     model = SRVGGNetCompact(num_in_ch=3, num_out_ch=3, num_feat=64, num_conv=32, upscale=4, act_type='prelu')
     model_path = load_file_from_url(
