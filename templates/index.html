@@ -3,26 +3,24 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>🎬 KL Marketing Production</title>
+<title>KL Marketing Production</title>
 <style>
 * { box-sizing: border-box; margin: 0; padding: 0; }
 body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #0f0f14; color: #e8e8f0; min-height: 100vh; }
-
 .header { background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%); padding: 16px 32px; border-bottom: 1px solid #2a2a4a; display: flex; align-items: center; gap: 12px; }
 .header h1 { font-size: 18px; font-weight: 700; color: #fff; }
 .badge { background: #7c3aed; color: #fff; font-size: 11px; padding: 3px 8px; border-radius: 20px; font-weight: 600; }
 .header-right { margin-left: auto; display: flex; align-items: center; gap: 10px; }
 .key-chip { display: inline-flex; align-items: center; gap: 6px; background: #1a2a1a; border: 1px solid #2a4a2a; color: #4ade80; font-size: 12px; padding: 4px 10px; border-radius: 20px; }
+.container { max-width: 1100px; margin: 0 auto; padding: 32px 24px; }
 
-.container { max-width: 960px; margin: 0 auto; padding: 32px 24px; }
+.section-tabs, .tool-tabs, .enhance-tabs { display: flex; gap: 4px; background: #1a1a2e; border: 1px solid #2a2a4a; border-radius: 12px; padding: 4px; margin-bottom: 24px; }
+.section-tab, .tool-tab, .enhance-tab { flex: 1; padding: 12px 16px; border-radius: 9px; border: none; cursor: pointer; font-size: 14px; font-weight: 600; transition: all .15s; background: transparent; color: #6b6b9a; text-align: center; }
+.section-tab.active, .tool-tab.active, .enhance-tab.active { background: #7c3aed; color: #fff; }
+.section-tab:not(.active):hover, .tool-tab:not(.active):hover, .enhance-tab:not(.active):hover { background: #2a2a4a; color: #c4c4e0; }
+.section-pane, .tool-pane { display: none; }
+.section-pane.active, .tool-pane.active { display: block; }
 
-/* Tool tabs */
-.tool-tabs { display: flex; gap: 4px; background: #1a1a2e; border: 1px solid #2a2a4a; border-radius: 12px; padding: 4px; margin-bottom: 28px; }
-.tool-tab { flex: 1; padding: 12px 16px; border-radius: 9px; border: none; cursor: pointer; font-size: 14px; font-weight: 600; transition: all .15s; background: transparent; color: #6b6b9a; text-align: center; }
-.tool-tab.active { background: #7c3aed; color: #fff; }
-.tool-tab:not(.active):hover { background: #2a2a4a; color: #c4c4e0; }
-
-/* Setup screen */
 .setup-screen { display: none; }
 .setup-screen.active { display: block; }
 .setup-card { background: #1a1a2e; border: 1px solid #2a2a4a; border-radius: 16px; padding: 40px; max-width: 520px; margin: 0 auto; }
@@ -33,14 +31,11 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; b
 .setup-steps ol { padding-left: 20px; }
 .setup-steps li { font-size: 13px; color: #9090b0; margin-bottom: 8px; line-height: 1.5; }
 .setup-steps a { color: #7c3aed; text-decoration: none; }
-
 .input-group { display: flex; gap: 8px; }
-input[type=password], input[type=text] { flex: 1; background: #12122a; border: 1px solid #3a3a6a; color: #e8e8f0; padding: 11px 14px; border-radius: 10px; font-size: 14px; font-family: monospace; transition: border-color .15s; }
-input[type=password]:focus, input[type=text]:focus { outline: none; border-color: #7c3aed; }
+input[type=password], input[type=text], textarea { flex: 1; background: #12122a; border: 1px solid #3a3a6a; color: #e8e8f0; padding: 11px 14px; border-radius: 10px; font-size: 14px; transition: border-color .15s; }
+input[type=password]:focus, input[type=text]:focus, textarea:focus { outline: none; border-color: #7c3aed; }
 .err-msg { color: #f87171; font-size: 13px; margin-top: 8px; display: none; }
 .err-msg.show { display: block; }
-
-/* Buttons */
 .btn { display: inline-flex; align-items: center; gap: 7px; padding: 10px 18px; border-radius: 10px; font-size: 14px; font-weight: 600; border: none; cursor: pointer; transition: all .15s; white-space: nowrap; }
 .btn-primary { background: #7c3aed; color: #fff; }
 .btn-primary:hover { background: #6d28d9; }
@@ -51,45 +46,33 @@ input[type=password]:focus, input[type=text]:focus { outline: none; border-color
 .btn-teal { background: #0891b2; color: #fff; }
 .btn-teal:hover { background: #0e7490; }
 .btn:disabled { opacity: 0.4; cursor: not-allowed; }
-
-/* Main screen */
 .main-screen { display: none; }
 .main-screen.active { display: block; }
 
-/* Upload area */
 .upload-card { background: #1a1a2e; border: 2px dashed #3a3a6a; border-radius: 16px; padding: 44px 32px; text-align: center; cursor: pointer; transition: all .2s; }
 .upload-card:hover, .upload-card.drag-over { border-color: #7c3aed; background: #1e1e38; }
 .upload-icon { font-size: 44px; margin-bottom: 14px; }
 .upload-card h2 { font-size: 17px; color: #c4c4e0; margin-bottom: 6px; }
 .upload-card p { color: #6b6b9a; font-size: 13px; }
-#fileInput { display: none; }
-
+#fileInput, #imageInput { display: none; }
 .controls-row { margin-top: 20px; display: flex; align-items: center; gap: 12px; justify-content: center; flex-wrap: wrap; }
 .controls-row label { color: #9090b0; font-size: 14px; }
 select { background: #16213e; border: 1px solid #3a3a6a; color: #e8e8f0; padding: 8px 14px; border-radius: 8px; font-size: 14px; cursor: pointer; }
 select:focus { outline: none; border-color: #7c3aed; }
-
 .file-info { text-align: center; color: #6b6b9a; font-size: 13px; margin-top: 10px; }
-
-/* Note box */
 .note-box { background: #12122a; border: 1px solid #2a2a4a; border-radius: 10px; padding: 12px 16px; font-size: 13px; color: #8080b0; line-height: 1.6; margin-top: 16px; }
 .note-box strong { color: #a78bfa; }
-
-/* Progress */
-.progress-card { background: #1a1a2e; border-radius: 16px; padding: 40px; text-align: center; display: none; }
+.progress-card { background: #1a1a2e; border-radius: 16px; padding: 40px; text-align: center; display: none; margin-top: 20px; }
 .progress-card.show { display: block; }
 .spinner { width: 42px; height: 42px; border: 3px solid #3a3a6a; border-top-color: #7c3aed; border-radius: 50%; animation: spin 1s linear infinite; margin: 0 auto 18px; }
 @keyframes spin { to { transform: rotate(360deg); } }
 .progress-label { color: #c4c4e0; font-size: 15px; margin-bottom: 6px; }
 .progress-step { color: #6b6b9a; font-size: 13px; }
-
-/* Review */
-.review-section { display: none; }
+.review-section { display: none; margin-top: 24px; }
 .review-section.show { display: block; }
 .review-toolbar { display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px; flex-wrap: wrap; gap: 12px; }
 .review-toolbar h2 { font-size: 17px; color: #c4c4e0; }
 .toolbar-actions { display: flex; gap: 10px; flex-wrap: wrap; }
-
 .segment-card { background: #1a1a2e; border: 1px solid #2a2a4a; border-radius: 12px; padding: 18px; margin-bottom: 12px; }
 .segment-header { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
 .tc-badge { background: #16213e; border: 1px solid #3a3a6a; color: #7c7caa; font-size: 12px; padding: 3px 9px; border-radius: 6px; font-family: monospace; }
@@ -97,57 +80,61 @@ select:focus { outline: none; border-color: #7c3aed; }
 .field-label { font-size: 11px; text-transform: uppercase; letter-spacing: .8px; color: #5a5a8a; margin-bottom: 5px; font-weight: 600; }
 .field-row { margin-bottom: 11px; }
 .orig-text { color: #8080b0; font-size: 14px; line-height: 1.6; }
-textarea.edit-field { width: 100%; background: #12122a; border: 1px solid #2a2a4a; color: #e8e8f0; border-radius: 8px; padding: 9px 12px; font-size: 14px; line-height: 1.6; resize: vertical; font-family: inherit; transition: border-color .15s; }
-textarea.edit-field:focus { outline: none; border-color: #7c3aed; }
-
-/* TC1 keywords */
+textarea.edit-field { width: 100%; resize: vertical; font-family: inherit; }
 .kw-list { display: flex; flex-direction: column; gap: 6px; margin-top: 7px; }
 .kw-item { display: flex; align-items: center; gap: 8px; background: #12122a; border: 1px solid #2a2a4a; border-radius: 8px; padding: 7px 11px; }
 .kw-orig { color: #a78bfa; font-size: 13px; font-weight: 600; min-width: 100px; }
 .kw-sep { color: #3a3a6a; }
 .kw-vi { color: #c4c4e0; font-size: 13px; flex: 1; }
-input.kw-input { background: transparent; border: none; color: inherit; font-size: inherit; font-weight: inherit; font-family: inherit; width: 100%; outline: none; }
+input.kw-input { background: transparent; border: none; color: inherit; font-size: inherit; font-weight: inherit; font-family: inherit; width: 100%; outline: none; padding: 0; }
 input.kw-input:focus { border-bottom: 1px solid #7c3aed; }
-.kw-del { background: none; border: none; color: #5a5a8a; cursor: pointer; font-size: 16px; padding: 0 4px; transition: color .15s; }
-.kw-del:hover { color: #ef4444; }
-.add-kw-btn { font-size: 12px; color: #7c3aed; background: none; border: 1px dashed #3a3a6a; border-radius: 6px; padding: 5px 12px; cursor: pointer; margin-top: 6px; transition: all .15s; }
-.add-kw-btn:hover { border-color: #7c3aed; }
-
-/* Export modal */
+.kw-del { background: none; border: none; color: #5a5a8a; cursor: pointer; font-size: 16px; padding: 0 4px; }
+.add-kw-btn { font-size: 12px; color: #7c3aed; background: none; border: 1px dashed #3a3a6a; border-radius: 6px; padding: 5px 12px; cursor: pointer; margin-top: 6px; }
 .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,.7); display: none; align-items: center; justify-content: center; z-index: 100; }
 .modal-overlay.show { display: flex; }
 .modal { background: #1a1a2e; border: 1px solid #3a3a6a; border-radius: 16px; padding: 28px; width: 390px; max-width: 90vw; }
 .modal h3 { font-size: 17px; margin-bottom: 18px; }
-.export-option { display: flex; align-items: center; gap: 14px; padding: 13px; border: 1px solid #2a2a4a; border-radius: 10px; margin-bottom: 10px; cursor: pointer; transition: all .15s; }
-.export-option:hover { border-color: #7c3aed; }
+.export-option { display: flex; align-items: center; gap: 14px; padding: 13px; border: 1px solid #2a2a4a; border-radius: 10px; margin-bottom: 10px; cursor: pointer; }
 .export-option input[type=radio] { accent-color: #7c3aed; }
 .export-option-text h4 { font-size: 14px; }
 .export-option-text p { font-size: 12px; color: #6b6b9a; margin-top: 3px; }
 .modal-actions { display: flex; gap: 10px; margin-top: 18px; justify-content: flex-end; }
-
 .toast { position: fixed; bottom: 24px; right: 24px; background: #059669; color: #fff; padding: 12px 20px; border-radius: 10px; font-size: 14px; font-weight: 600; display: none; z-index: 200; }
-.toast.show { display: block; animation: slideIn .2s ease; }
+.toast.show { display: block; }
 .toast.error { background: #dc2626; }
-@keyframes slideIn { from { transform: translateY(20px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+
+.enhance-grid { display: grid; grid-template-columns: 1.1fr .9fr; gap: 20px; }
+@media(max-width: 900px) { .enhance-grid { grid-template-columns: 1fr; } }
+.enhance-panel, .preview-panel { background: #1a1a2e; border: 1px solid #2a2a4a; border-radius: 16px; padding: 20px; }
+.panel-title { font-size: 16px; color: #c4c4e0; margin-bottom: 14px; }
+.form-stack { display: flex; flex-direction: column; gap: 14px; }
+.form-stack label { font-size: 13px; color: #9090b0; margin-bottom: 6px; display: block; }
+.range-row { display: grid; grid-template-columns: 140px 1fr 48px; gap: 12px; align-items: center; }
+input[type=range] { width: 100%; accent-color: #7c3aed; }
+.preview-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+.preview-card { background: #12122a; border: 1px solid #2a2a4a; border-radius: 12px; overflow: hidden; }
+.preview-card h4 { font-size: 12px; color: #9090b0; padding: 10px 12px; border-bottom: 1px solid #2a2a4a; }
+.preview-card img { width: 100%; display: block; max-height: 420px; object-fit: contain; background: #0d0d18; }
+.preview-meta { font-size: 12px; color: #6b6b9a; padding: 10px 12px; }
+.chips { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
+.chip { display: inline-flex; align-items: center; gap: 6px; background: #16213e; border: 1px solid #2a2a4a; color: #9aa6c0; font-size: 12px; padding: 6px 10px; border-radius: 999px; }
+.hidden { display:none !important; }
 </style>
 </head>
 <body>
-
 <div class="header">
   <span style="font-size:22px">🎬</span>
   <h1>KL Marketing Production</h1>
-  <span class="badge">v3</span>
+  <span class="badge">v4</span>
   <div class="header-right" id="keyStatus"></div>
 </div>
 
 <div class="container">
-
-  <!-- Setup Screen -->
   <div class="setup-screen" id="setupScreen">
     <div class="setup-card">
       <div class="setup-icon">🔑</div>
       <h2>Cài đặt Gemini API Key</h2>
-      <p>Nhập 1 lần, app nhớ mãi. Lấy key miễn phí tại AI Studio.</p>
+      <p>Chỉ cần cho TC1. Nhập 1 lần, app nhớ mãi.</p>
       <div class="setup-steps">
         <ol>
           <li>Vào <a href="https://aistudio.google.com/apikey" target="_blank">aistudio.google.com/apikey</a></li>
@@ -163,122 +150,159 @@ input.kw-input:focus { border-bottom: 1px solid #7c3aed; }
     </div>
   </div>
 
-  <!-- Main Screen -->
   <div class="main-screen" id="mainScreen">
-
-    <!-- Tool tabs -->
-    <div class="tool-tabs">
-      <button class="tool-tab active" id="tab-tc1" onclick="switchTool('tc1')">
-        🇰🇭 Khmer / Đa ngôn ngữ
-        <div style="font-size:11px;font-weight:400;margin-top:2px">Keyword sub + dịch Việt</div>
-      </button>
-      <button class="tool-tab" id="tab-tc2" onclick="switchTool('tc2')">
-        🎵 TikTok tiếng Việt
-        <div style="font-size:11px;font-weight:400;margin-top:2px">Full sub + cleanup tự động</div>
-      </button>
+    <div class="section-tabs">
+      <button class="section-tab active" id="section-subtitle" onclick="switchSection('subtitle')">🎬 Subtitle Video</button>
+      <button class="section-tab" id="section-enhance" onclick="switchSection('enhance')">🖼️ Enhance hình ảnh</button>
     </div>
 
-    <!-- Upload section -->
-    <div id="uploadSection">
-      <div class="upload-card" id="dropZone" onclick="document.getElementById('fileInput').click()">
-        <div class="upload-icon" id="uploadIcon">🎵</div>
-        <h2 id="uploadTitle">Kéo thả file audio/video vào đây</h2>
-        <p>MP3, MP4, WAV, M4A, MOV...</p>
-        <input type="file" id="fileInput" accept="audio/*,video/*">
+    <div class="section-pane active" id="pane-subtitle">
+      <div class="tool-tabs">
+        <button class="tool-tab active" id="tab-tc1" onclick="switchTool('tc1')">🇰🇭 TC1<div style="font-size:11px;font-weight:400;margin-top:2px">Keyword sub + dịch Việt</div></button>
+        <button class="tool-tab" id="tab-tc2" onclick="switchTool('tc2')">🎵 TC2<div style="font-size:11px;font-weight:400;margin-top:2px">Full sub + cleanup</div></button>
       </div>
 
-      <div class="controls-row" id="tc1Controls">
-        <label>Ngôn ngữ gốc:</label>
-        <select id="langSelect">
-          {% for code, name in lang_names.items() %}
-          <option value="{{ code }}" {% if code == 'auto' %}selected{% endif %}>{{ name }}</option>
-          {% endfor %}
-        </select>
-        <button class="btn btn-primary" id="processBtn" disabled onclick="startProcess()">✨ Xử lý</button>
+      <div id="uploadSection">
+        <div class="upload-card" id="dropZone" onclick="document.getElementById('fileInput').click()">
+          <div class="upload-icon">🎵</div>
+          <h2>Kéo thả file audio/video vào đây</h2>
+          <p>MP3, MP4, WAV, M4A, MOV...</p>
+          <input type="file" id="fileInput" accept="audio/*,video/*">
+        </div>
+        <div class="controls-row" id="tc1Controls">
+          <label>Ngôn ngữ gốc:</label>
+          <select id="langSelect">
+            {% for code, name in lang_names.items() %}
+            <option value="{{ code }}" {% if code == 'auto' %}selected{% endif %}>{{ name }}</option>
+            {% endfor %}
+          </select>
+          <button class="btn btn-primary" id="processBtn" disabled onclick="startProcess()">✨ Xử lý</button>
+        </div>
+        <div class="controls-row hidden" id="tc2Controls">
+          <button class="btn btn-teal" id="processBtn2" disabled onclick="startProcess()">✨ Xử lý + Cleanup</button>
+        </div>
+        <div class="file-info" id="fileName"></div>
+        <div class="note-box" id="tc1Note"><strong>TC1:</strong> Whisper lấy timecode + Gemini dịch và bóc keyword.</div>
+        <div class="note-box hidden" id="tc2Note"><strong>TC2:</strong> Tự động transcribe tiếng Việt và cleanup filler words/cách viết.</div>
       </div>
 
-      <div class="controls-row" id="tc2Controls" style="display:none">
-        <button class="btn btn-teal" id="processBtn2" disabled onclick="startProcess()">✨ Xử lý + Cleanup</button>
+      <div class="progress-card" id="progressCard">
+        <div class="spinner"></div>
+        <div class="progress-label" id="progressLabel">Đang xử lý...</div>
+        <div class="progress-step" id="progressStep"></div>
       </div>
 
-      <div class="file-info" id="fileName"></div>
-
-      <div class="note-box" id="tc1Note">
-        <strong>TC1:</strong> Dùng AI nghe audio, transcribe chữ Khmer/ngôn ngữ gốc, dịch tiếng Việt và bóc keyword. Cần API key Gemini (miễn phí).
+      <div class="review-section" id="reviewTC1">
+        <div class="review-toolbar">
+          <h2>🇰🇭 Review Khmer Sub</h2>
+          <div class="toolbar-actions">
+            <button class="btn btn-secondary" onclick="resetTool()">← File mới</button>
+            <button class="btn btn-secondary" onclick="saveEdits()">💾 Lưu</button>
+            <button class="btn btn-success" onclick="showExportModal()">📥 Xuất SRT</button>
+          </div>
+        </div>
+        <div id="segListTC1"></div>
       </div>
-      <div class="note-box" id="tc2Note" style="display:none">
-        <strong>TC2:</strong> Tự động transcribe tiếng Việt, làm sạch filler words ("á", "ê ê ê"...), sửa từ sai ("hong" → "không"). Không tốn API key.
+
+      <div class="review-section" id="reviewTC2">
+        <div class="review-toolbar">
+          <h2>🎵 Review TikTok Sub</h2>
+          <div class="toolbar-actions">
+            <button class="btn btn-secondary" onclick="resetTool()">← File mới</button>
+            <button class="btn btn-secondary" onclick="saveEditsTC2()">💾 Lưu</button>
+            <button class="btn btn-teal" onclick="exportTC2()">📥 Xuất SRT</button>
+          </div>
+        </div>
+        <div id="segListTC2"></div>
       </div>
     </div>
 
-    <!-- Progress -->
-    <div class="progress-card" id="progressCard">
-      <div class="spinner"></div>
-      <div class="progress-label" id="progressLabel">Đang xử lý...</div>
-      <div class="progress-step" id="progressStep"></div>
-    </div>
+    <div class="section-pane" id="pane-enhance">
+      <div class="enhance-tabs">
+        <button class="enhance-tab active" id="enhance-tab-gpt" onclick="switchEnhanceMode('gpt')">✨ GPT Image</button>
+        <button class="enhance-tab" id="enhance-tab-esrgan" onclick="switchEnhanceMode('esrgan')">🎛️ ESRGAN / chỉnh mức</button>
+      </div>
 
-    <!-- Review TC1 -->
-    <div class="review-section" id="reviewTC1">
-      <div class="review-toolbar">
-        <h2>🇰🇭 Review Khmer Sub</h2>
-        <div class="toolbar-actions">
-          <button class="btn btn-secondary" onclick="resetTool()">← File mới</button>
-          <button class="btn btn-secondary" onclick="saveEdits()">💾 Lưu</button>
-          <button class="btn btn-success" onclick="showExportModal()">📥 Xuất SRT</button>
+      <div class="enhance-grid">
+        <div class="enhance-panel">
+          <div class="upload-card" id="imageDropZone" onclick="document.getElementById('imageInput').click()">
+            <div class="upload-icon">🖼️</div>
+            <h2>Kéo thả ảnh vào đây</h2>
+            <p>PNG, JPG, WEBP</p>
+            <input type="file" id="imageInput" accept="image/*">
+          </div>
+          <div class="file-info" id="imageFileName"></div>
+
+          <div class="form-stack" style="margin-top:18px">
+            <div id="gptControls">
+              <label for="gptPrompt">Prompt enhance (tuỳ chọn)</label>
+              <textarea id="gptPrompt" rows="5" placeholder="Ví dụ: Enhance naturally, make it cleaner, sharper, smoother, keep original composition and identity."></textarea>
+              <div class="note-box"><strong>GPT Image:</strong> Đẹp, êm, nịnh mắt hơn nhưng có thể can thiệp vào texture/chi tiết nhiều hơn.</div>
+            </div>
+
+            <div id="esrganControls" class="hidden">
+              <div class="range-row"><label>Mức AI can thiệp</label><input type="range" id="strengthRange" min="0" max="100" value="55" oninput="syncRange('strength')"><span id="strengthVal">55</span></div>
+              <div class="range-row"><label>Độ sharpen</label><input type="range" id="sharpnessRange" min="50" max="180" value="115" oninput="syncRange('sharpness')"><span id="sharpnessVal">115</span></div>
+              <div class="range-row"><label>Contrast</label><input type="range" id="contrastRange" min="80" max="140" value="104" oninput="syncRange('contrast')"><span id="contrastVal">104</span></div>
+              <div class="range-row"><label>Color</label><input type="range" id="colorRange" min="80" max="140" value="102" oninput="syncRange('color')"><span id="colorVal">102</span></div>
+              <div>
+                <label>Scale output</label>
+                <select id="outscaleSelect">
+                  <option value="1">Giữ nguyên size</option>
+                  <option value="2">Phóng 2x</option>
+                </select>
+              </div>
+              <div class="note-box"><strong>ESRGAN / chỉnh mức:</strong> Cho phép giảm cảm giác AI đè quá tay bằng cách blend và chỉnh sharpness/contrast/color.</div>
+            </div>
+
+            <div class="controls-row" style="justify-content:flex-start;margin-top:0">
+              <button class="btn btn-primary" id="enhanceBtn" disabled onclick="startEnhance()">✨ Enhance ảnh</button>
+              <button class="btn btn-secondary" onclick="resetEnhance()">↺ Reset</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="preview-panel">
+          <div class="panel-title">Preview kết quả</div>
+          <div class="chips">
+            <div class="chip" id="engineChip">Engine: chưa chạy</div>
+            <div class="chip" id="sizeChip">Kích thước: —</div>
+          </div>
+          <div class="preview-grid" style="margin-top:14px">
+            <div class="preview-card">
+              <h4>Ảnh gốc</h4>
+              <img id="origPreview" alt="Original preview">
+              <div class="preview-meta" id="origMeta">Chưa có ảnh</div>
+            </div>
+            <div class="preview-card">
+              <h4>Ảnh sau enhance</h4>
+              <img id="resultPreview" alt="Enhanced preview">
+              <div class="preview-meta" id="resultMeta">Chưa có kết quả</div>
+            </div>
+          </div>
+          <div class="controls-row" style="justify-content:flex-start">
+            <a class="btn btn-success hidden" id="downloadBtn" download="enhanced.png">📥 Tải ảnh</a>
+          </div>
+          <div class="progress-card" id="enhanceProgress">
+            <div class="spinner"></div>
+            <div class="progress-label" id="enhanceProgressLabel">Đang enhance ảnh...</div>
+            <div class="progress-step" id="enhanceProgressStep">Tuỳ mode có thể mất vài giây đến vài chục giây</div>
+          </div>
         </div>
       </div>
-      <div id="segListTC1"></div>
     </div>
-
-    <!-- Review TC2 -->
-    <div class="review-section" id="reviewTC2">
-      <div class="review-toolbar">
-        <h2>🎵 Review TikTok Sub</h2>
-        <div class="toolbar-actions">
-          <button class="btn btn-secondary" onclick="resetTool()">← File mới</button>
-          <button class="btn btn-secondary" onclick="saveEditsTC2()">💾 Lưu</button>
-          <button class="btn btn-teal" onclick="exportTC2()">📥 Xuất SRT</button>
-        </div>
-      </div>
-      <div id="segListTC2"></div>
-    </div>
-
   </div>
 </div>
 
-<!-- Export Modal (TC1) -->
 <div class="modal-overlay" id="exportModal">
   <div class="modal">
     <h3>📥 Xuất SRT — Khmer</h3>
-    <label class="export-option">
-      <input type="radio" name="exportMode" value="keyword" checked>
-      <div class="export-option-text">
-        <h4>2-Layer (Keyword sub)</h4>
-        <p>Line 1: Tiếng Việt đầy đủ · Line 2+: Keyword gốc / nghĩa Việt</p>
-      </div>
-    </label>
-    <label class="export-option">
-      <input type="radio" name="exportMode" value="full">
-      <div class="export-option-text">
-        <h4>Full Vietnamese</h4>
-        <p>Chỉ phụ đề tiếng Việt đầy đủ</p>
-      </div>
-    </label>
-    <label class="export-option">
-      <input type="radio" name="exportMode" value="keyword_only">
-      <div class="export-option-text">
-        <h4>Chỉ Keyword</h4>
-        <p>Chỉ xuất các keyword đã bóc tách, không có câu đầy đủ</p>
-      </div>
-    </label>
-    <div class="modal-actions">
-      <button class="btn btn-secondary" onclick="closeModal()">Huỷ</button>
-      <button class="btn btn-success" onclick="doExport()">Tải SRT</button>
-    </div>
+    <label class="export-option"><input type="radio" name="exportMode" value="keyword" checked><div class="export-option-text"><h4>2-Layer (Keyword sub)</h4><p>Line 1: Việt đầy đủ · Line 2+: Keyword gốc / nghĩa Việt</p></div></label>
+    <label class="export-option"><input type="radio" name="exportMode" value="full"><div class="export-option-text"><h4>Full Vietnamese</h4><p>Chỉ phụ đề tiếng Việt đầy đủ</p></div></label>
+    <label class="export-option"><input type="radio" name="exportMode" value="keyword_only"><div class="export-option-text"><h4>Chỉ Keyword</h4><p>Chỉ xuất keyword đã bóc tách</p></div></label>
+    <div class="modal-actions"><button class="btn btn-secondary" onclick="closeModal()">Huỷ</button><button class="btn btn-success" onclick="doExport()">Tải SRT</button></div>
   </div>
 </div>
-
 <div class="toast" id="toast"></div>
 
 <script>
@@ -286,10 +310,13 @@ let currentJobId = null;
 let currentSegments = [];
 let selectedFile = null;
 let currentTool = 'tc1';
+let currentSection = 'subtitle';
+let currentEnhanceMode = 'gpt';
 let detectedLang = 'km';
+let selectedImage = null;
+let resultImageUrl = null;
 const LS_KEY = 'klm_gemini_key';
 
-// ── Init ──────────────────────────────────────────────────────────────────────
 (function init() {
   const saved = localStorage.getItem(LS_KEY);
   if (saved) {
@@ -300,18 +327,31 @@ const LS_KEY = 'klm_gemini_key';
   }
 })();
 
-// ── Tool switch ───────────────────────────────────────────────────────────────
+function switchSection(section) {
+  currentSection = section;
+  ['subtitle','enhance'].forEach(s => {
+    document.getElementById('section-' + s).classList.toggle('active', s === section);
+    document.getElementById('pane-' + s).classList.toggle('active', s === section);
+  });
+}
 function switchTool(tool) {
   currentTool = tool;
   ['tc1','tc2'].forEach(t => {
     document.getElementById(`tab-${t}`).classList.toggle('active', t === tool);
-    document.getElementById(`${t}Controls`).style.display = t === tool ? 'flex' : 'none';
-    document.getElementById(`${t}Note`).style.display = t === tool ? 'block' : 'none';
   });
+  document.getElementById('tc1Controls').classList.toggle('hidden', tool !== 'tc1');
+  document.getElementById('tc2Controls').classList.toggle('hidden', tool !== 'tc2');
+  document.getElementById('tc1Note').classList.toggle('hidden', tool !== 'tc1');
+  document.getElementById('tc2Note').classList.toggle('hidden', tool !== 'tc2');
   resetTool();
 }
+function switchEnhanceMode(mode) {
+  currentEnhanceMode = mode;
+  ['gpt','esrgan'].forEach(m => document.getElementById('enhance-tab-' + m).classList.toggle('active', m === mode));
+  document.getElementById('gptControls').classList.toggle('hidden', mode !== 'gpt');
+  document.getElementById('esrganControls').classList.toggle('hidden', mode !== 'esrgan');
+}
 
-// ── Key setup (localStorage) ──────────────────────────────────────────────────
 async function saveKey() {
   const key = document.getElementById('apiKeyInput').value.trim();
   if (!key) return;
@@ -336,20 +376,16 @@ function resetKey() {
 }
 function updateKeyStatus(hasKey) {
   const el = document.getElementById('keyStatus');
-  el.innerHTML = hasKey
-    ? '<span class="key-chip">🟢 API key</span><button class="btn btn-secondary" style="font-size:11px;padding:4px 10px" onclick="resetKey()">Đổi</button>'
-    : '';
+  el.innerHTML = hasKey ? '<span class="key-chip">🟢 Gemini key</span><button class="btn btn-secondary" style="font-size:11px;padding:4px 10px" onclick="resetKey()">Đổi</button>' : '';
 }
 document.getElementById('apiKeyInput')?.addEventListener('keydown', e => { if(e.key==='Enter') saveKey(); });
 
-// ── File select ───────────────────────────────────────────────────────────────
 const dropZone = document.getElementById('dropZone');
 const fileInput = document.getElementById('fileInput');
 dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('drag-over'); });
 dropZone.addEventListener('dragleave', () => dropZone.classList.remove('drag-over'));
 dropZone.addEventListener('drop', e => { e.preventDefault(); dropZone.classList.remove('drag-over'); if(e.dataTransfer.files[0]) setFile(e.dataTransfer.files[0]); });
 fileInput.addEventListener('change', () => { if(fileInput.files[0]) setFile(fileInput.files[0]); });
-
 function setFile(file) {
   selectedFile = file;
   document.getElementById('fileName').textContent = `📂 ${file.name} (${(file.size/1024/1024).toFixed(1)} MB)`;
@@ -357,18 +393,13 @@ function setFile(file) {
   document.getElementById('processBtn2').disabled = false;
 }
 
-// ── Process ───────────────────────────────────────────────────────────────────
 async function startProcess() {
   if (!selectedFile) return;
   const language = document.getElementById('langSelect').value;
   document.getElementById('uploadSection').style.display = 'none';
   document.getElementById('progressCard').classList.add('show');
-
-  const stepMsg = currentTool === 'tc1'
-    ? 'Bước 1: Whisper lấy timecode · Bước 2: Gemini transcribe + dịch'
-    : 'Whisper đang nghe audio tiếng Việt...';
+  const stepMsg = currentTool === 'tc1' ? 'Bước 1: Whisper lấy timecode · Bước 2: Gemini transcribe + dịch' : 'Whisper đang nghe audio tiếng Việt...';
   setProgress(currentTool === 'tc1' ? '🎙️ Đang xử lý audio...' : '🎵 Đang transcribe tiếng Việt...', stepMsg);
-
   try {
     const formData = new FormData();
     formData.append('audio', selectedFile);
@@ -378,216 +409,176 @@ async function startProcess() {
     const uploadData = await uploadRes.json();
     if (uploadData.error) throw new Error(uploadData.error);
     currentJobId = uploadData.job_id;
-
     if (currentTool === 'tc1') setProgress('🧠 Gemini đang dịch và bóc keyword...', 'Thường 30s - 2 phút');
-
     const processRes = await fetch(`/api/process/${currentJobId}`, {
       method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({audio_path: uploadData.audio_path, tool: currentTool, language,
-                            gemini_key: localStorage.getItem(LS_KEY) || ''})
+      body: JSON.stringify({audio_path: uploadData.audio_path, tool: currentTool, language, gemini_key: localStorage.getItem(LS_KEY) || ''})
     });
     const processData = await processRes.json();
     if (processData.error) throw new Error(processData.error);
-
     currentSegments = processData.segments;
     detectedLang = processData.language || 'km';
     renderReview();
   } catch(err) {
-    showToast('❌ ' + err.message, true);
-    resetTool();
+    showToast('❌ ' + err.message, true); resetTool();
   }
 }
-
 function setProgress(label, step) {
   document.getElementById('progressLabel').textContent = label;
   document.getElementById('progressStep').textContent = step;
 }
-
-// ── Render review ─────────────────────────────────────────────────────────────
 function renderReview() {
   document.getElementById('progressCard').classList.remove('show');
   if (currentTool === 'tc1') {
     document.getElementById('reviewTC1').classList.add('show');
-    const list = document.getElementById('segListTC1');
-    list.innerHTML = '';
+    const list = document.getElementById('segListTC1'); list.innerHTML = '';
     currentSegments.forEach((seg, i) => list.appendChild(createTC1Card(seg, i)));
   } else {
     document.getElementById('reviewTC2').classList.add('show');
-    const list = document.getElementById('segListTC2');
-    list.innerHTML = '';
+    const list = document.getElementById('segListTC2'); list.innerHTML = '';
     currentSegments.forEach((seg, i) => list.appendChild(createTC2Card(seg, i)));
   }
 }
-
-// TC1 card
 function createTC1Card(seg, i) {
   const card = document.createElement('div');
   card.className = 'segment-card';
   card.innerHTML = `
-    <div class="segment-header">
-      <span class="seg-num">#${i+1}</span>
-      <span class="tc-badge">${formatTC(seg.start)} → ${formatTC(seg.end)}</span>
-    </div>
-    <div class="field-row">
-      <div class="field-label">Gốc</div>
-      <div class="orig-text">${escHtml(seg.original || '')}</div>
-    </div>
-    <div class="field-row">
-      <div class="field-label">Tiếng Việt</div>
-      <textarea class="edit-field vi-full" rows="2" data-idx="${i}">${escHtml(seg.vi_full || '')}</textarea>
-    </div>
-    <div class="field-row">
-      <div class="field-label">Keywords</div>
-      <div class="kw-list" id="kwList_${i}"></div>
-      <button class="add-kw-btn" onclick="addKeyword(${i})">+ Thêm keyword</button>
-    </div>
-  `;
+    <div class="segment-header"><span class="seg-num">#${i+1}</span><span class="tc-badge">${formatTC(seg.start)} → ${formatTC(seg.end)}</span></div>
+    <div class="field-row"><div class="field-label">Gốc</div><div class="orig-text">${escHtml(seg.original || '')}</div></div>
+    <div class="field-row"><div class="field-label">Tiếng Việt</div><textarea class="edit-field vi-full" rows="2" data-idx="${i}">${escHtml(seg.vi_full || '')}</textarea></div>
+    <div class="field-row"><div class="field-label">Keywords</div><div class="kw-list" id="kwList_${i}"></div><button class="add-kw-btn" onclick="addKeyword(${i})">+ Thêm keyword</button></div>`;
   const kwList = card.querySelector(`#kwList_${i}`);
   (seg.keywords || []).forEach((kw, ki) => kwList.appendChild(createKwItem(kw, i, ki)));
   return card;
 }
-
 function createKwItem(kw, segIdx, kwIdx) {
   const div = document.createElement('div');
   div.className = 'kw-item';
   div.innerHTML = `
-    <span class="kw-orig" style="position:relative;min-width:110px">
-      <input class="kw-input kw-orig-input" value="${escHtml(kw.original||'')}" placeholder="từ gốc" oninput="updateKw(${segIdx},${kwIdx},'original',this.value)">
-      <span class="kw-translating" style="display:none;font-size:10px;color:#7c3aed;position:absolute;right:2px;top:2px">⏳</span>
-    </span>
+    <span class="kw-orig" style="position:relative;min-width:110px"><input class="kw-input kw-orig-input" value="${escHtml(kw.original||'')}" placeholder="từ gốc" oninput="updateKw(${segIdx},${kwIdx},'original',this.value)"><span class="kw-translating" style="display:none;font-size:10px;color:#7c3aed;position:absolute;right:2px;top:2px">⏳</span></span>
     <span class="kw-sep">/</span>
     <span class="kw-vi"><input class="kw-input kw-vi-input" value="${escHtml(kw.vi||'')}" placeholder="nhập nghĩa Việt → Tab để dịch" oninput="updateKw(${segIdx},${kwIdx},'vi',this.value)" onblur="autoTranslateKw(this,${segIdx},${kwIdx})"></span>
-    <button class="kw-del" onclick="deleteKw(${segIdx},${kwIdx})">×</button>
-  `;
+    <button class="kw-del" onclick="deleteKw(${segIdx},${kwIdx})">×</button>`;
   return div;
 }
-
 function addKeyword(segIdx) {
   if (!currentSegments[segIdx].keywords) currentSegments[segIdx].keywords = [];
   const kwIdx = currentSegments[segIdx].keywords.length;
   currentSegments[segIdx].keywords.push({original:'', vi:''});
   document.getElementById(`kwList_${segIdx}`).appendChild(createKwItem({original:'',vi:''}, segIdx, kwIdx));
 }
-
 function deleteKw(segIdx, kwIdx) {
   currentSegments[segIdx].keywords.splice(kwIdx, 1);
-  const kwList = document.getElementById(`kwList_${segIdx}`);
-  kwList.innerHTML = '';
+  const kwList = document.getElementById(`kwList_${segIdx}`); kwList.innerHTML = '';
   currentSegments[segIdx].keywords.forEach((kw, ki) => kwList.appendChild(createKwItem(kw, segIdx, ki)));
 }
-
-function updateKw(segIdx, kwIdx, field, value) {
-  if (currentSegments[segIdx].keywords[kwIdx]) currentSegments[segIdx].keywords[kwIdx][field] = value;
-}
-
+function updateKw(segIdx, kwIdx, field, value) { if (currentSegments[segIdx].keywords[kwIdx]) currentSegments[segIdx].keywords[kwIdx][field] = value; }
 async function autoTranslateKw(viInput, segIdx, kwIdx) {
-  const viText = viInput.value.trim();
-  if (!viText) return;
-  const kwItem = viInput.closest('.kw-item');
-  const origInput = kwItem.querySelector('.kw-orig-input');
-  if (origInput && origInput.value.trim()) return;
-  const spinner = kwItem.querySelector('.kw-translating');
-  if (spinner) spinner.style.display = 'inline';
+  const viText = viInput.value.trim(); if (!viText) return;
+  const kwItem = viInput.closest('.kw-item'); const origInput = kwItem.querySelector('.kw-orig-input'); if (origInput && origInput.value.trim()) return;
+  const spinner = kwItem.querySelector('.kw-translating'); if (spinner) spinner.style.display = 'inline';
   try {
-    const res = await fetch('/api/translate', {
-      method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({text: viText, target_lang: detectedLang, gemini_key: localStorage.getItem(LS_KEY)||''})
-    });
+    const res = await fetch('/api/translate', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({text: viText, target_lang: detectedLang, gemini_key: localStorage.getItem(LS_KEY)||''}) });
     const data = await res.json();
     if (data.translated && origInput) { origInput.value = data.translated; updateKw(segIdx, kwIdx, 'original', data.translated); }
   } catch(e) {}
   if (spinner) spinner.style.display = 'none';
 }
-
-// TC2 card
 function createTC2Card(seg, i) {
-  const card = document.createElement('div');
-  card.className = 'segment-card';
-  card.innerHTML = `
-    <div class="segment-header">
-      <span class="seg-num">#${i+1}</span>
-      <span class="tc-badge">${formatTC(seg.start)} → ${formatTC(seg.end)}</span>
-    </div>
-    <div class="field-row">
-      <div class="field-label">Gốc (trước cleanup)</div>
-      <div class="orig-text">${escHtml(seg.original || '')}</div>
-    </div>
-    <div class="field-row">
-      <div class="field-label">Sau cleanup (có thể sửa)</div>
-      <textarea class="edit-field tc2-cleaned" rows="2" data-idx="${i}">${escHtml(seg.cleaned || seg.original || '')}</textarea>
-    </div>
-  `;
+  const card = document.createElement('div'); card.className = 'segment-card';
+  card.innerHTML = `<div class="segment-header"><span class="seg-num">#${i+1}</span><span class="tc-badge">${formatTC(seg.start)} → ${formatTC(seg.end)}</span></div><div class="field-row"><div class="field-label">Gốc (trước cleanup)</div><div class="orig-text">${escHtml(seg.original || '')}</div></div><div class="field-row"><div class="field-label">Sau cleanup (có thể sửa)</div><textarea class="edit-field tc2-cleaned" rows="2" data-idx="${i}">${escHtml(seg.cleaned || seg.original || '')}</textarea></div>`;
   return card;
 }
-
-// ── Save / Export ─────────────────────────────────────────────────────────────
-function collectEditsTC1() {
-  document.querySelectorAll('.vi-full').forEach(ta => {
-    const idx = parseInt(ta.dataset.idx);
-    currentSegments[idx].vi_full = ta.value;
-  });
-}
-
-async function saveEdits() {
-  collectEditsTC1();
-  const res = await fetch(`/api/save/${currentJobId}`, { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({segments:currentSegments}) });
-  if ((await res.json()).success) showToast('✅ Đã lưu!');
-}
-
-function collectEditsTC2() {
-  document.querySelectorAll('.tc2-cleaned').forEach(ta => {
-    const idx = parseInt(ta.dataset.idx);
-    currentSegments[idx].cleaned = ta.value;
-  });
-}
-
-async function saveEditsTC2() {
-  collectEditsTC2();
-  const res = await fetch(`/api/save/${currentJobId}`, { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({segments:currentSegments}) });
-  if ((await res.json()).success) showToast('✅ Đã lưu!');
-}
-
+function collectEditsTC1() { document.querySelectorAll('.vi-full').forEach(ta => { const idx = parseInt(ta.dataset.idx); currentSegments[idx].vi_full = ta.value; }); }
+async function saveEdits() { collectEditsTC1(); const res = await fetch(`/api/save/${currentJobId}`, { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({segments:currentSegments}) }); if ((await res.json()).success) showToast('✅ Đã lưu!'); }
+function collectEditsTC2() { document.querySelectorAll('.tc2-cleaned').forEach(ta => { const idx = parseInt(ta.dataset.idx); currentSegments[idx].cleaned = ta.value; }); }
+async function saveEditsTC2() { collectEditsTC2(); const res = await fetch(`/api/save/${currentJobId}`, { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({segments:currentSegments}) }); if ((await res.json()).success) showToast('✅ Đã lưu!'); }
 function showExportModal() { collectEditsTC1(); document.getElementById('exportModal').classList.add('show'); }
 function closeModal() { document.getElementById('exportModal').classList.remove('show'); }
+async function doExport() { await saveEdits(); const mode = document.querySelector('input[name=exportMode]:checked').value; closeModal(); window.location.href = `/api/export/${currentJobId}?mode=${mode}`; showToast('📥 Đang tải SRT...'); }
+async function exportTC2() { await saveEditsTC2(); window.location.href = `/api/export/${currentJobId}`; showToast('📥 Đang tải SRT...'); }
+function resetTool() { currentJobId = null; currentSegments = []; selectedFile = null; document.getElementById('uploadSection').style.display = 'block'; document.getElementById('progressCard').classList.remove('show'); document.getElementById('reviewTC1').classList.remove('show'); document.getElementById('reviewTC2').classList.remove('show'); document.getElementById('fileName').textContent = ''; document.getElementById('processBtn').disabled = true; document.getElementById('processBtn2').disabled = true; fileInput.value = ''; }
 
-async function doExport() {
-  await saveEdits();
-  const mode = document.querySelector('input[name=exportMode]:checked').value;
-  closeModal();
-  window.location.href = `/api/export/${currentJobId}?mode=${mode}`;
-  showToast('📥 Đang tải SRT...');
+const imageDropZone = document.getElementById('imageDropZone');
+const imageInput = document.getElementById('imageInput');
+imageDropZone.addEventListener('dragover', e => { e.preventDefault(); imageDropZone.classList.add('drag-over'); });
+imageDropZone.addEventListener('dragleave', () => imageDropZone.classList.remove('drag-over'));
+imageDropZone.addEventListener('drop', e => { e.preventDefault(); imageDropZone.classList.remove('drag-over'); if(e.dataTransfer.files[0]) setImageFile(e.dataTransfer.files[0]); });
+imageInput.addEventListener('change', () => { if(imageInput.files[0]) setImageFile(imageInput.files[0]); });
+function setImageFile(file) {
+  selectedImage = file;
+  if (resultImageUrl) URL.revokeObjectURL(resultImageUrl);
+  resultImageUrl = null;
+  const url = URL.createObjectURL(file);
+  document.getElementById('origPreview').src = url;
+  document.getElementById('origMeta').textContent = `${file.name} · ${(file.size/1024/1024).toFixed(2)} MB`;
+  document.getElementById('imageFileName').textContent = `📂 ${file.name} (${(file.size/1024/1024).toFixed(2)} MB)`;
+  document.getElementById('resultPreview').src = '';
+  document.getElementById('resultMeta').textContent = 'Chưa có kết quả';
+  document.getElementById('engineChip').textContent = 'Engine: chưa chạy';
+  document.getElementById('sizeChip').textContent = 'Kích thước: —';
+  document.getElementById('downloadBtn').classList.add('hidden');
+  document.getElementById('enhanceBtn').disabled = false;
+}
+function syncRange(name) { document.getElementById(name + 'Val').textContent = document.getElementById(name + 'Range').value; }
+async function startEnhance() {
+  if (!selectedImage) return;
+  document.getElementById('enhanceBtn').disabled = true;
+  document.getElementById('enhanceProgress').classList.add('show');
+  document.getElementById('enhanceProgressLabel').textContent = currentEnhanceMode === 'gpt' ? '✨ GPT Image đang enhance...' : '🎛️ ESRGAN / Enhance đang xử lý...';
+  try {
+    const fd = new FormData();
+    fd.append('image', selectedImage);
+    fd.append('mode', currentEnhanceMode);
+    if (currentEnhanceMode === 'gpt') {
+      fd.append('prompt', document.getElementById('gptPrompt').value.trim());
+    } else {
+      fd.append('strength', document.getElementById('strengthRange').value);
+      fd.append('sharpness', document.getElementById('sharpnessRange').value);
+      fd.append('contrast', document.getElementById('contrastRange').value);
+      fd.append('color', document.getElementById('colorRange').value);
+      fd.append('outscale', document.getElementById('outscaleSelect').value);
+    }
+    const res = await fetch('/api/enhance-image', { method:'POST', body: fd });
+    if (!res.ok) {
+      let msg = 'Lỗi enhance ảnh';
+      try { const data = await res.json(); msg = data.error || msg; } catch(e) {}
+      throw new Error(msg);
+    }
+    const blob = await res.blob();
+    resultImageUrl = URL.createObjectURL(blob);
+    document.getElementById('resultPreview').src = resultImageUrl;
+    document.getElementById('resultMeta').textContent = res.headers.get('X-Output-Filename') || 'Đã enhance';
+    document.getElementById('engineChip').textContent = 'Engine: ' + (res.headers.get('X-Enhance-Engine') || currentEnhanceMode);
+    const outImg = new Image();
+    outImg.onload = () => { document.getElementById('sizeChip').textContent = `Kích thước: ${outImg.width}×${outImg.height}`; };
+    outImg.src = resultImageUrl;
+    const dl = document.getElementById('downloadBtn');
+    dl.href = resultImageUrl; dl.classList.remove('hidden');
+    showToast('✅ Enhance xong');
+  } catch(err) {
+    showToast('❌ ' + err.message, true);
+  }
+  document.getElementById('enhanceProgress').classList.remove('show');
+  document.getElementById('enhanceBtn').disabled = false;
+}
+function resetEnhance() {
+  selectedImage = null;
+  document.getElementById('imageInput').value = '';
+  document.getElementById('imageFileName').textContent = '';
+  document.getElementById('origPreview').src = '';
+  document.getElementById('resultPreview').src = '';
+  document.getElementById('origMeta').textContent = 'Chưa có ảnh';
+  document.getElementById('resultMeta').textContent = 'Chưa có kết quả';
+  document.getElementById('engineChip').textContent = 'Engine: chưa chạy';
+  document.getElementById('sizeChip').textContent = 'Kích thước: —';
+  document.getElementById('downloadBtn').classList.add('hidden');
+  document.getElementById('enhanceBtn').disabled = true;
 }
 
-async function exportTC2() {
-  await saveEditsTC2();
-  window.location.href = `/api/export/${currentJobId}`;
-  showToast('📥 Đang tải SRT...');
-}
-
-// ── Helpers ───────────────────────────────────────────────────────────────────
-function formatTC(sec) {
-  const h = Math.floor(sec/3600).toString().padStart(2,'0');
-  const m = Math.floor(sec%3600/60).toString().padStart(2,'0');
-  const s = Math.floor(sec%60).toString().padStart(2,'0');
-  return `${h}:${m}:${s}`;
-}
+function formatTC(sec) { const h = Math.floor(sec/3600).toString().padStart(2,'0'); const m = Math.floor(sec%3600/60).toString().padStart(2,'0'); const s = Math.floor(sec%60).toString().padStart(2,'0'); return `${h}:${m}:${s}`; }
 function escHtml(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
-function showToast(msg, isError=false) {
-  const t = document.getElementById('toast');
-  t.textContent = msg; t.className = 'toast show' + (isError?' error':'');
-  setTimeout(() => t.classList.remove('show'), 3000);
-}
-function resetTool() {
-  currentJobId = null; currentSegments = []; selectedFile = null;
-  document.getElementById('uploadSection').style.display = 'block';
-  document.getElementById('progressCard').classList.remove('show');
-  document.getElementById('reviewTC1').classList.remove('show');
-  document.getElementById('reviewTC2').classList.remove('show');
-  document.getElementById('fileName').textContent = '';
-  document.getElementById('processBtn').disabled = true;
-  document.getElementById('processBtn2').disabled = true;
-  fileInput.value = '';
-}
+function showToast(msg, isError=false) { const t = document.getElementById('toast'); t.textContent = msg; t.className = 'toast show' + (isError?' error':''); setTimeout(() => t.classList.remove('show'), 3000); }
 </script>
 </body>
 </html>

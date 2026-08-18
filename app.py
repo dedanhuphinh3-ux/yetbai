@@ -1,23 +1,30 @@
 #!/usr/bin/env python3
 """
 KL Marketing Production Tool — Web Version
-TC1: Khmer/Multilingual keyword sub (OpenAI Whisper API + Gemini)
-TC2: TikTok Vietnamese full sub (OpenAI Whisper API + rules)
-Deploy: Render.com
+Subtitle Video:
+- TC1: Khmer/Multilingual keyword sub (OpenAI Whisper API + Gemini)
+- TC2: TikTok Vietnamese full sub (OpenAI Whisper API + rules)
+Enhance hình ảnh:
+- GPT Image enhance
+- ESRGAN / adjustable enhancement
 """
 
 import os
 import re
+import io
 import json
 import uuid
+import base64
 import tempfile
 import warnings
 warnings.filterwarnings("ignore")
 
 from pathlib import Path
+from functools import lru_cache
 from flask import Flask, render_template, request, jsonify, send_file
 from openai import OpenAI
 from google import genai
+from PIL import Image, ImageEnhance, ImageFilter
 
 # ── Config ────────────────────────────────────────────────────────────────────
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "")
@@ -48,6 +55,10 @@ FILLER_PATTERNS = [
 
 UPLOAD_DIR = Path(tempfile.gettempdir()) / "klm_uploads"
 UPLOAD_DIR.mkdir(exist_ok=True)
+IMAGE_DIR = Path(tempfile.gettempdir()) / "klm_images"
+IMAGE_DIR.mkdir(exist_ok=True)
+WEIGHTS_DIR = Path(tempfile.gettempdir()) / "klm_realesrgan_weights"
+WEIGHTS_DIR.mkdir(exist_ok=True)
 
 app = Flask(__name__)
 app.config["MAX_CONTENT_LENGTH"] = 200 * 1024 * 1024  # 200MB
@@ -56,9 +67,7 @@ app.config["MAX_CONTENT_LENGTH"] = 200 * 1024 * 1024  # 200MB
 # ── Whisper API (OpenAI) ──────────────────────────────────────────────────────
 
 def transcribe_whisper_api(audio_path: str, language: str = None) -> dict:
-    """Transcribe audio dùng OpenAI Whisper API — trả về segments với timestamps."""
     client = OpenAI(api_key=OPENAI_API_KEY)
-
     kwargs = {
         "model": "whisper-1",
         "response_format": "verbose_json",
@@ -86,17 +95,11 @@ def transcribe_whisper_api(audio_path: str, language: str = None) -> dict:
 # ── TC1: Khmer / Multilingual ─────────────────────────────────────────────────
 
 def tc1_process(audio_path: str, language: str, gemini_key: str) -> dict:
-    """TC1: Whisper API timecodes + Gemini content."""
-    # Step 1: Whisper API → timecodes
-    print("[TC1] Whisper API → segment timecodes...")
     whisper_result = transcribe_whisper_api(audio_path, language if language != "auto" else None)
     whisper_segs = whisper_result["segments"]
     detected_lang = whisper_result["language"]
 
-    # Step 2: Gemini → content
-    print(f"[TC1] Gemini → transcript + translation + keywords ({detected_lang})...")
     client = genai.Client(api_key=gemini_key)
-
     uploaded = client.files.upload(file=audio_path)
     lang_name = LANG_NAMES.get(detected_lang, detected_lang)
     n = len(whisper_segs)
@@ -123,7 +126,6 @@ Match {n} segments."""
     except Exception:
         pass
 
-    # Step 3: Merge
     segments = []
     for i, ws in enumerate(whisper_segs):
         gs = gemini_segs[i] if i < len(gemini_segs) else {}
@@ -152,8 +154,6 @@ def clean_text(text: str) -> str:
 
 
 def tc2_process(audio_path: str) -> dict:
-    """TC2: OpenAI Whisper API → Vietnamese + cleanup."""
-    print("[TC2] Whisper API → Vietnamese transcription...")
     result = transcribe_whisper_api(audio_path, language="vi")
     segments = []
     for i, seg in enumerate(result["segments"]):
@@ -165,6 +165,137 @@ def tc2_process(audio_path: str) -> dict:
             "cleaned": clean_text(seg["text"]),
         })
     return {"segments": segments, "language": "vi"}
+
+
+# ── Image enhancement helpers ─────────────────────────────────────────────────
+
+def pick_gpt_size(w: int, h: int) -> str:
+    if w >= h * 1.2:
+        return "1536x1024"
+    if h >= w * 1.2:
+        return "1024x1536"
+    return "1024x1024"
+
+
+def save_pil_image(img: Image.Image, suffix: str = ".png") -> str:
+    out = IMAGE_DIR / f"enhanced_{uuid.uuid4().hex[:10]}{suffix}"
+    img.save(out, format="PNG")
+    return str(out)
+
+
+def enhance_with_gpt_image(image_path: str, prompt: str = "") -> str:
+    if not OPENAI_API_KEY:
+        raise RuntimeError("Server chưa cấu hình OpenAI key")
+
+    client = OpenAI(api_key=OPENAI_API_KEY)
+    with Image.open(image_path) as im:
+        w, h = im.size
+        size = pick_gpt_size(w, h)
+
+    final_prompt = (
+        prompt.strip()
+        or "Enhance this image naturally. Improve clarity, detail, micro-contrast, and overall polish while preserving the original composition, people, objects, and scene. Avoid changing identity, text, layout, or adding new elements."
+    )
+
+    with open(image_path, "rb") as f:
+        result = client.images.edit(
+            model="gpt-image-1",
+            image=f,
+            prompt=final_prompt,
+            size=size,
+        )
+
+    b64 = result.data[0].b64_json
+    output_bytes = base64.b64decode(b64)
+    out_path = IMAGE_DIR / f"gpt_enhance_{uuid.uuid4().hex[:10]}.png"
+    out_path.write_bytes(output_bytes)
+    return str(out_path)
+
+
+@lru_cache(maxsize=1)
+def load_realesrgan_runtime():
+    import torch
+    from basicsr.archs.rrdbnet_arch import RRDBNet
+    from basicsr.utils.download_util import load_file_from_url
+    from realesrgan import RealESRGANer
+    from realesrgan.archs.srvgg_arch import SRVGGNetCompact
+
+    tv_dir = Path(torch.__file__).resolve().parent.parent / "torchvision" / "transforms"
+    shim = tv_dir / "functional_tensor.py"
+    if not shim.exists():
+        shim.write_text("from ._functional_tensor import *\n", encoding="utf-8")
+
+    model = SRVGGNetCompact(num_in_ch=3, num_out_ch=3, num_feat=64, num_conv=32, upscale=4, act_type='prelu')
+    model_path = load_file_from_url(
+        url='https://github.com/xinntao/Real-ESRGAN/releases/download/v0.2.5.0/realesr-general-x4v3.pth',
+        model_dir=str(WEIGHTS_DIR), progress=True, file_name=None)
+    wdn_model_path = load_file_from_url(
+        url='https://github.com/xinntao/Real-ESRGAN/releases/download/v0.2.5.0/realesr-general-wdn-x4v3.pth',
+        model_dir=str(WEIGHTS_DIR), progress=True, file_name=None)
+
+    upsampler = RealESRGANer(
+        scale=4,
+        model_path=[model_path, wdn_model_path],
+        dni_weight=[0.5, 0.5],
+        model=model,
+        tile=0,
+        tile_pad=10,
+        pre_pad=0,
+        half=False,
+        gpu_id=None,
+    )
+    return upsampler
+
+
+def classic_adjust(img: Image.Image, sharpness: float, contrast: float, color: float) -> Image.Image:
+    if contrast != 1:
+        img = ImageEnhance.Contrast(img).enhance(contrast)
+    if color != 1:
+        img = ImageEnhance.Color(img).enhance(color)
+    if sharpness != 1:
+        img = ImageEnhance.Sharpness(img).enhance(sharpness)
+    return img
+
+
+def enhance_with_esrgan_adjustable(image_path: str,
+                                   strength: float = 0.55,
+                                   sharpness: float = 1.15,
+                                   contrast: float = 1.04,
+                                   color: float = 1.02,
+                                   outscale: float = 1.0):
+    with Image.open(image_path) as src:
+        original = src.convert("RGB")
+    base_target_size = (
+        max(1, round(original.width * outscale)),
+        max(1, round(original.height * outscale)),
+    )
+    base = original.resize(base_target_size, Image.LANCZOS) if outscale != 1 else original.copy()
+
+    engine = "classic"
+    enhanced = None
+
+    try:
+        import cv2
+        upsampler = load_realesrgan_runtime()
+        bgr = cv2.imread(image_path, cv2.IMREAD_COLOR)
+        if bgr is None:
+            raise RuntimeError("Không đọc được ảnh đầu vào")
+        esr_outscale = 2 if outscale <= 2 else 4
+        output, _ = upsampler.enhance(bgr, outscale=esr_outscale)
+        rgb = cv2.cvtColor(output, cv2.COLOR_BGR2RGB)
+        enhanced = Image.fromarray(rgb)
+        if enhanced.size != base_target_size:
+            enhanced = enhanced.resize(base_target_size, Image.LANCZOS)
+        engine = "esrgan"
+    except Exception:
+        enhanced = base.copy()
+        enhanced = enhanced.filter(ImageFilter.UnsharpMask(radius=2.0, percent=140, threshold=2))
+
+    mix = max(0.0, min(1.0, strength))
+    blended = Image.blend(base, enhanced, mix)
+    blended = blended.filter(ImageFilter.UnsharpMask(radius=1.4, percent=int(60 + mix * 120), threshold=2))
+    blended = classic_adjust(blended, sharpness=sharpness, contrast=contrast, color=color)
+    return save_pil_image(blended), engine
 
 
 # ── SRT export ────────────────────────────────────────────────────────────────
@@ -238,7 +369,6 @@ def translate():
 
 @app.route("/api/validate-key", methods=["POST"])
 def validate_key():
-    """Validate Gemini API key."""
     key = request.json.get("key", "").strip()
     if not key:
         return jsonify({"ok": False, "error": "Key trống"}), 400
@@ -314,11 +444,49 @@ def export(job_id):
     else:
         srt = export_srt_tc2(job["segments"])
         fname = "tiktok_vi_sub.srt"
-    tmp = tempfile.NamedTemporaryFile(mode="w", suffix=".srt",
-                                      encoding="utf-8", delete=False)
+    tmp = tempfile.NamedTemporaryFile(mode="w", suffix=".srt", encoding="utf-8", delete=False)
     tmp.write(srt)
     tmp.close()
     return send_file(tmp.name, as_attachment=True, download_name=fname)
+
+
+@app.route("/api/enhance-image", methods=["POST"])
+def enhance_image():
+    if "image" not in request.files:
+        return jsonify({"error": "No image"}), 400
+
+    image = request.files["image"]
+    mode = request.form.get("mode", "gpt")
+    ext = Path(image.filename or "image.png").suffix or ".png"
+    input_path = IMAGE_DIR / f"input_{uuid.uuid4().hex[:10]}{ext}"
+    image.save(str(input_path))
+
+    try:
+        if mode == "gpt":
+            prompt = request.form.get("prompt", "")
+            output_path = enhance_with_gpt_image(str(input_path), prompt)
+            engine = "gpt-image-1"
+        else:
+            strength = float(request.form.get("strength", "55")) / 100.0
+            sharpness = float(request.form.get("sharpness", "115")) / 100.0
+            contrast = float(request.form.get("contrast", "104")) / 100.0
+            color = float(request.form.get("color", "102")) / 100.0
+            outscale = float(request.form.get("outscale", "1"))
+            output_path, engine = enhance_with_esrgan_adjustable(
+                str(input_path),
+                strength=strength,
+                sharpness=sharpness,
+                contrast=contrast,
+                color=color,
+                outscale=outscale,
+            )
+
+        response = send_file(output_path, mimetype="image/png", as_attachment=False, download_name=Path(output_path).name)
+        response.headers["X-Enhance-Engine"] = engine
+        response.headers["X-Output-Filename"] = Path(output_path).name
+        return response
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 
 if __name__ == "__main__":
