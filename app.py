@@ -271,9 +271,6 @@ def enhance_with_esrgan_adjustable(image_path: str,
     )
     base = original.resize(base_target_size, Image.LANCZOS) if outscale != 1 else original.copy()
 
-    engine = "classic"
-    enhanced = None
-
     try:
         import cv2
         upsampler = load_realesrgan_runtime()
@@ -286,16 +283,14 @@ def enhance_with_esrgan_adjustable(image_path: str,
         enhanced = Image.fromarray(rgb)
         if enhanced.size != base_target_size:
             enhanced = enhanced.resize(base_target_size, Image.LANCZOS)
-        engine = "esrgan"
-    except Exception:
-        enhanced = base.copy()
-        enhanced = enhanced.filter(ImageFilter.UnsharpMask(radius=2.0, percent=140, threshold=2))
+    except Exception as e:
+        raise RuntimeError(f"ESRGAN runtime không chạy được: {e}") from e
 
     mix = max(0.0, min(1.0, strength))
     blended = Image.blend(base, enhanced, mix)
-    blended = blended.filter(ImageFilter.UnsharpMask(radius=1.4, percent=int(60 + mix * 120), threshold=2))
+    blended = blended.filter(ImageFilter.UnsharpMask(radius=1.0, percent=int(20 + mix * 60), threshold=2))
     blended = classic_adjust(blended, sharpness=sharpness, contrast=contrast, color=color)
-    return save_pil_image(blended), engine
+    return save_pil_image(blended), "esrgan"
 
 
 # ── SRT export ────────────────────────────────────────────────────────────────
