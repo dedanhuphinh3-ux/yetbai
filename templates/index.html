@@ -32,7 +32,8 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; b
 .setup-steps li { font-size: 13px; color: #9090b0; margin-bottom: 8px; line-height: 1.5; }
 .setup-steps a { color: #7c3aed; text-decoration: none; }
 .input-group { display: flex; gap: 8px; }
-input[type=password], input[type=text], textarea { flex: 1; background: #12122a; border: 1px solid #3a3a6a; color: #e8e8f0; padding: 11px 14px; border-radius: 10px; font-size: 14px; transition: border-color .15s; }
+.input-group input[type=password], .input-group input[type=text] { flex: 1; }
+input[type=password], input[type=text], textarea { width: 100%; background: #12122a; border: 1px solid #3a3a6a; color: #e8e8f0; padding: 11px 14px; border-radius: 10px; font-size: 14px; transition: border-color .15s; }
 input[type=password]:focus, input[type=text]:focus, textarea:focus { outline: none; border-color: #7c3aed; }
 .err-msg { color: #f87171; font-size: 13px; margin-top: 8px; display: none; }
 .err-msg.show { display: block; }
@@ -114,7 +115,8 @@ input[type=range] { width: 100%; accent-color: #7c3aed; }
 .preview-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
 .preview-card { background: #12122a; border: 1px solid #2a2a4a; border-radius: 12px; overflow: hidden; }
 .preview-card h4 { font-size: 12px; color: #9090b0; padding: 10px 12px; border-bottom: 1px solid #2a2a4a; }
-.preview-card img { width: 100%; display: block; max-height: 420px; object-fit: contain; background: #0d0d18; }
+.preview-card img { width: 100%; display: block; max-height: 420px; min-height: 180px; object-fit: contain; background: #0d0d18; }
+.preview-card img[src=""], .preview-card img:not([src]) { display: none; }
 .preview-meta { font-size: 12px; color: #6b6b9a; padding: 10px 12px; }
 .chips { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
 .chip { display: inline-flex; align-items: center; gap: 6px; background: #16213e; border: 1px solid #2a2a4a; color: #9aa6c0; font-size: 12px; padding: 6px 10px; border-radius: 999px; }
@@ -236,7 +238,7 @@ input[type=range] { width: 100%; accent-color: #7c3aed; }
           <div class="form-stack" style="margin-top:18px">
             <div id="gptControls">
               <label for="gptPrompt">Prompt enhance (tuỳ chọn)</label>
-              <textarea id="gptPrompt" rows="5" placeholder="Ví dụ: Enhance naturally, make it cleaner, sharper, smoother, keep original composition and identity."></textarea>
+              <textarea id="gptPrompt" rows="5" style="display:block; width:100%; resize:vertical" placeholder="Ví dụ: Enhance naturally, make it cleaner, sharper, smoother, keep original composition and identity."></textarea>
               <div class="note-box"><strong>GPT Image:</strong> Đẹp, êm, nịnh mắt hơn nhưng có thể can thiệp vào texture/chi tiết nhiều hơn.</div>
             </div>
 
@@ -513,7 +515,7 @@ function setImageFile(file) {
   document.getElementById('origPreview').src = url;
   document.getElementById('origMeta').textContent = `${file.name} · ${(file.size/1024/1024).toFixed(2)} MB`;
   document.getElementById('imageFileName').textContent = `📂 ${file.name} (${(file.size/1024/1024).toFixed(2)} MB)`;
-  document.getElementById('resultPreview').src = '';
+  document.getElementById('resultPreview').removeAttribute('src');
   document.getElementById('resultMeta').textContent = 'Chưa có kết quả';
   document.getElementById('engineChip').textContent = 'Engine: chưa chạy';
   document.getElementById('sizeChip').textContent = 'Kích thước: —';
@@ -566,8 +568,8 @@ function resetEnhance() {
   selectedImage = null;
   document.getElementById('imageInput').value = '';
   document.getElementById('imageFileName').textContent = '';
-  document.getElementById('origPreview').src = '';
-  document.getElementById('resultPreview').src = '';
+  document.getElementById('origPreview').removeAttribute('src');
+  document.getElementById('resultPreview').removeAttribute('src');
   document.getElementById('origMeta').textContent = 'Chưa có ảnh';
   document.getElementById('resultMeta').textContent = 'Chưa có kết quả';
   document.getElementById('engineChip').textContent = 'Engine: chưa chạy';
