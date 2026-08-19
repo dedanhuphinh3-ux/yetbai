@@ -136,7 +136,7 @@ def _tc1_generate_with_fallback(client, prompt: str):
     raise last_error or RuntimeError("Không có Gemini model khả dụng cho TC1")
 
 
-def _transcribe_translate_tc1_from_audio(client, audio_path: str, lang_name: str, timing_segments: list[dict]) -> dict[int, dict]:
+def _transcribe_tc1_from_audio(client, audio_path: str, lang_name: str, timing_segments: list[dict]) -> dict[int, dict]:
     if not timing_segments:
         return {}
     payload = [
@@ -155,25 +155,22 @@ Ngôn ngữ chính của audio: {lang_name}
 Audio đính kèm mới là SOURCE OF TRUTH cho nội dung nói.
 Danh sách segment bên dưới chỉ dùng để GIỮ KHUNG index/timecode.
 
-Nhiệm vụ:
+Nhiệm vụ DUY NHẤT:
 - Nghe audio đính kèm.
-- Với mỗi `index` trong danh sách segment, hãy điền:
-  1. `original`: câu gốc bằng native script / ngôn ngữ thật đang nói trong audio
-  2. `vi_full`: bản dịch tiếng Việt đầy đủ ý, sát nghĩa
+- Với mỗi `index`, trả về `original` là câu gốc / transcript đúng nhất có thể theo audio.
 
 Quy tắc bắt buộc:
 - Giữ nguyên số lượng object và đúng `index` như input.
+- Chỉ transcript câu gốc, KHÔNG dịch ở bước này.
 - Dựa vào AUDIO để hiểu câu, không phụ thuộc transcript giả định bên ngoài.
-- `vi_full` phải sát nghĩa, không văn vẻ hóa, không bịa thêm bối cảnh.
-- Không được viết cụt.
-- Nếu một segment rất ngắn, vẫn trả câu/dòng sát nghĩa nhất có thể.
+- Nếu segment ngắn, vẫn cố transcript đủ nhất có thể.
 - Chỉ trả JSON array, không markdown.
 
 Input segments:
 {json.dumps(payload, ensure_ascii=False)}
 
 Output schema:
-[{{"index":0,"original":"...","vi_full":"..."}}]"""
+[{{"index":0,"original":"..."}}]"""
         resp = _tc1_generate_with_fallback(client, [uploaded, prompt])
         translated = json.loads(_unwrap_json_text(resp.text))
         return {int(item.get("index", -1)): item for item in translated if isinstance(item, dict)}
@@ -182,6 +179,43 @@ Output schema:
             client.files.delete(name=uploaded.name)
         except Exception:
             pass
+
+
+def _translate_tc1_from_transcript_batch(client, lang_name: str, batch: list[dict]) -> dict[int, str]:
+    if not batch:
+        return {}
+    payload = []
+    for i, s in enumerate(batch):
+        payload.append({
+            "index": s["id"],
+            "original": s["original"],
+            "prev_original": batch[i-1]["original"] if i > 0 else "",
+            "next_original": batch[i+1]["original"] if i + 1 < len(batch) else "",
+        })
+    prompt = f"""Bạn là biên dịch viên subtitle rất kỹ, dịch sang tiếng Việt cho video quảng cáo/làm đẹp.
+Ngôn ngữ gốc: {lang_name}
+
+Nhiệm vụ DUY NHẤT:
+- Dịch `original` sang `vi_full` cho từng item.
+- Được quyền dùng `prev_original` và `next_original` để hiểu NGỮ CẢNH.
+
+Yêu cầu cực kỳ quan trọng:
+- `vi_full` phải ĐỦ Ý, không được lược bỏ chi tiết quan trọng.
+- Câu Việt có thể dài hơn câu gốc nếu cần để đủ nghĩa.
+- Ưu tiên ĐÚNG và ĐỦ hơn là ngắn.
+- Không văn vẻ hóa, không bịa thêm ý, không thêm cảm xúc không có trong câu gốc.
+- Không được dịch thành câu quá ngắn nếu câu gốc có nhiều ý.
+- Giữ nguyên `index`.
+- Chỉ trả JSON array, không markdown.
+
+Input:
+{json.dumps(payload, ensure_ascii=False)}
+
+Output schema:
+[{{"index":0,"vi_full":"..."}}]"""
+    resp = _tc1_generate_with_fallback(client, prompt)
+    translated = json.loads(_unwrap_json_text(resp.text))
+    return {int(item.get("index", -1)): (item.get("vi_full") or "").strip() for item in translated if isinstance(item, dict)}
 
 
 def _extract_tc1_keywords_batch(client, lang_name: str, batch: list[dict]) -> dict[int, list]:
@@ -239,7 +273,7 @@ def tc1_process(audio_path: str, language: str, gemini_key: str) -> dict:
         for i, ws in enumerate(whisper_segs)
     ]
 
-    by_index = _transcribe_translate_tc1_from_audio(client, audio_path, lang_name, timing_segments)
+    by_index = _transcribe_tc1_from_audio(client, audio_path, lang_name, timing_segments)
 
     segments = []
     for i, ws in enumerate(whisper_segs):
@@ -248,15 +282,20 @@ def tc1_process(audio_path: str, language: str, gemini_key: str) -> dict:
             "id": i,
             "start": ws["start"],
             "end": ws["end"],
-            "original": (gs.get("original") or "").strip(),
-            "vi_full": (gs.get("vi_full") or "").strip(),
+            "original": (gs.get("original") or ws["text"] or "").strip(),
+            "vi_full": "",
             "keywords": [],
         }
-        if not segment["original"]:
-            segment["original"] = ws["text"]
-        if _looks_bad_vi_full(segment["vi_full"]):
-            segment["vi_full"] = ""
         segments.append(segment)
+
+    translate_batch_size = 10
+    for start_idx in range(0, len(segments), translate_batch_size):
+        batch = segments[start_idx:start_idx + translate_batch_size]
+        vi_map = _translate_tc1_from_transcript_batch(client, lang_name, batch)
+        for seg in batch:
+            vi = (vi_map.get(seg["id"]) or "").strip()
+            if not _looks_bad_vi_full(vi):
+                seg["vi_full"] = vi
 
     keyword_batch_size = 12
     for start_idx in range(0, len(segments), keyword_batch_size):
