@@ -151,19 +151,19 @@ def _translate_tc1_batch(client, lang_name: str, batch: list[dict]) -> dict[int,
     prompt = f"""Bạn là biên dịch viên Khmer/đa ngôn ngữ sang tiếng Việt, chuyên subtitle quảng cáo/video.
 Ngôn ngữ gốc: {lang_name}
 
-Nhiệm vụ:
+Nhiệm vụ DUY NHẤT:
 - Dịch NGHĨA THẬT của từng segment sang tiếng Việt.
-- Ưu tiên TRUNG THÀNH với câu gốc hơn là văn vẻ.
-- Không được suy diễn thêm, không được dùng giọng văn thơ mộng nếu câu gốc không có.
-- Không được rút gọn thành fragment.
-- Không được đổi ý câu.
-- Giữ nguyên `index` và số lượng item.
-- `original` phải bám sát text gốc đầu vào, không tự viết lại lung tung.
-- `keywords` chỉ được rút từ đúng nghĩa của câu đó.
 
-Nếu câu gốc ngắn/khó hiểu:
-- hãy dịch sát nghĩa nhất có thể,
-- tuyệt đối không bịa thêm bối cảnh kiểu "thiền định", "kỳ bí", v.v. nếu câu gốc không nói vậy.
+Quy tắc bắt buộc:
+- Ưu tiên TRUNG THÀNH với câu gốc hơn là văn vẻ.
+- Không được suy diễn thêm.
+- Không được dùng giọng văn thơ mộng nếu câu gốc không có.
+- Không được đổi ý câu.
+- Không được rút gọn thành fragment.
+- Không thêm lời giải thích, không thêm bối cảnh, không thêm cảm xúc.
+- `original` phải bám sát text gốc đầu vào.
+- Giữ nguyên `index` và số lượng item.
+- Nếu câu gốc ngắn/khó hiểu, vẫn dịch sát nghĩa nhất có thể, không bịa thêm ý.
 
 Chỉ trả JSON array, không markdown.
 
@@ -171,10 +171,49 @@ Input:
 {json.dumps(payload, ensure_ascii=False)}
 
 Output schema:
-[{{"index":0,"original":"...","vi_full":"...","keywords":[{{"original":"...","vi":"..."}}]}}]"""
+[{{"index":0,"original":"...","vi_full":"..."}}]"""
     resp = _tc1_generate_with_fallback(client, prompt)
     translated = json.loads(_unwrap_json_text(resp.text))
     return {int(item.get("index", -1)): item for item in translated if isinstance(item, dict)}
+
+
+def _extract_tc1_keywords_batch(client, lang_name: str, batch: list[dict]) -> dict[int, list]:
+    if not batch:
+        return {}
+    payload = [
+        {
+            "index": s["id"],
+            "original": s["original"],
+            "vi_full": s["vi_full"],
+        }
+        for s in batch
+    ]
+    prompt = f"""Bạn đang làm bước BÓC TÁCH KEYWORD cho subtitle.
+Ngôn ngữ gốc: {lang_name}
+
+Nhiệm vụ DUY NHẤT:
+- Dựa trên `original` và `vi_full` đã có sẵn,
+- trích ra 1-3 keyword/phrase quan trọng cho mỗi segment.
+
+Quy tắc:
+- KHÔNG sửa lại `vi_full`.
+- KHÔNG dịch lại cả câu.
+- Chỉ lấy keyword thật sự quan trọng: lợi ích, USP, số liệu, tên thương hiệu, CTA.
+- Nếu không có keyword rõ, vẫn trả mảng rỗng hoặc 1 keyword an toàn, không bịa.
+- Giữ nguyên `index`.
+- Chỉ trả JSON array, không markdown.
+
+Input:
+{json.dumps(payload, ensure_ascii=False)}
+
+Output schema:
+[{{"index":0,"keywords":[{{"original":"...","vi":"..."}}]}}]"""
+    resp = _tc1_generate_with_fallback(client, prompt)
+    extracted = json.loads(_unwrap_json_text(resp.text))
+    return {
+        int(item.get("index", -1)): item.get("keywords", [])
+        for item in extracted if isinstance(item, dict)
+    }
 
 
 def _repair_tc1_bad_segments(client, lang_name: str, segments: list[dict]) -> dict[int, dict]:
@@ -196,7 +235,7 @@ Yêu cầu cực kỳ quan trọng:
 - `vi_full` phải là câu tiếng Việt đầy đủ ý của câu gốc, không được rút gọn.
 - Không trả về số vô nghĩa, không trả về fragment cụt.
 - Không được bịa thêm ý không có trong câu gốc.
-- `keywords`: 1-3 keyword/phrase ngắn, lấy từ ý nghĩa thật của câu.
+- Không được thêm keyword ở bước này.
 - Giữ đúng `index`.
 - Chỉ trả JSON array, không markdown.
 
@@ -204,7 +243,7 @@ Input:
 {json.dumps(repair_payload, ensure_ascii=False)}
 
 Output schema:
-[{{"index":0,"vi_full":"...","keywords":[{{"original":"...","vi":"..."}}]}}]"""
+[{{"index":0,"vi_full":"..."}}]"""
     resp = _tc1_generate_with_fallback(client, prompt)
     repaired = json.loads(_unwrap_json_text(resp.text))
     return {int(item.get("index", -1)): item for item in repaired if isinstance(item, dict)}
@@ -243,7 +282,7 @@ def tc1_process(audio_path: str, language: str, gemini_key: str) -> dict:
             "end": ws["end"],
             "original": (gs.get("original") or ws["text"] or "").strip(),
             "vi_full": (gs.get("vi_full") or "").strip(),
-            "keywords": gs.get("keywords", []),
+            "keywords": [],
         }
         if _looks_bad_vi_full(segment["vi_full"]):
             suspicious.append({"index": i, **segment})
@@ -257,8 +296,15 @@ def tc1_process(audio_path: str, language: str, gemini_key: str) -> dict:
                 continue
             if fixed.get("vi_full") and not _looks_bad_vi_full(fixed.get("vi_full")):
                 seg["vi_full"] = fixed["vi_full"].strip()
-            if isinstance(fixed.get("keywords"), list) and fixed.get("keywords"):
-                seg["keywords"] = fixed["keywords"]
+
+    keyword_batch_size = 12
+    for start_idx in range(0, len(segments), keyword_batch_size):
+        batch = segments[start_idx:start_idx + keyword_batch_size]
+        keyword_map = _extract_tc1_keywords_batch(client, lang_name, batch)
+        for seg in batch:
+            kws = keyword_map.get(seg["id"])
+            if isinstance(kws, list):
+                seg["keywords"] = kws
 
     return {"segments": segments, "language": detected_lang}
 
