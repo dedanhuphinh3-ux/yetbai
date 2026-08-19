@@ -592,7 +592,7 @@ async function pollEsrganJob(jobId, labelEl) {
     await new Promise(r => setTimeout(r, 5000));
     elapsed += 5;
     if (labelEl) labelEl.textContent = `🎛️ ESRGAN đang xử lý... (${elapsed}s)`;
-    if (step) step.textContent = 'Vui lòng đợi — anh có thể làm việc khác trong lúc này';
+    if (step) step.textContent = 'Vui lòng đợi — bạn có thể làm việc khác trong lúc này';
     const res = await fetch(`/api/enhance-status/${jobId}`);
     if (!res.ok) {
       let msg = 'ESRGAN lỗi';
