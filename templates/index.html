@@ -252,10 +252,10 @@ input[type=range] { width: 100%; accent-color: #7c3aed; }
               <div class="range-row"><label>Contrast</label><input type="range" id="contrastRange" min="80" max="140" value="104" oninput="syncRange('contrast')"><span id="contrastVal">104</span></div>
               <div class="range-row"><label>Color</label><input type="range" id="colorRange" min="80" max="140" value="102" oninput="syncRange('color')"><span id="colorVal">102</span></div>
               <div>
-                <label>Scale output <small style="color:#f87171;font-weight:normal">(2x rất chậm)</small></label>
+                <label>Output size <small style="color:#94a3b8;font-weight:normal">(ESRGAN sẽ xuất tối đa 1920px cạnh dài)</small></label>
                 <select id="outscaleSelect">
-                  <option value="1" selected>Giữ nguyên size (khuyến nghị)</option>
-                  <option value="2">Phóng 2x (chậm hơn nhiều)</option>
+                  <option value="1" selected>Tự động tối ưu (khuyến nghị)</option>
+                  <option value="2">Ưu tiên nét hơn (có thể chậm hơn)</option>
                 </select>
               </div>
               <div class="note-box"><strong>ESRGAN / chỉnh mức:</strong> Cho phép giảm cảm giác AI đè quá tay bằng cách blend và chỉnh sharpness/contrast/color.</div>
@@ -534,7 +534,7 @@ async function startEnhance() {
   document.getElementById('enhanceProgress').classList.add('show');
   const label = document.getElementById('enhanceProgressLabel');
   label.textContent = currentEnhanceMode === 'gpt' ? '✨ GPT Image đang enhance...' : '🎛️ ESRGAN đang xử lý... (~2-3 phút)';
-  document.getElementById('enhanceProgressStep').textContent = currentEnhanceMode === 'esrgan' ? 'Anh đợi nhé — đang chạy AI trên server...' : '';
+  document.getElementById('enhanceProgressStep').textContent = currentEnhanceMode === 'esrgan' ? 'Server sẽ tự co ảnh lớn xuống trước, rồi xuất tối đa 1920px cạnh dài.' : '';
   try {
     const fd = new FormData();
     fd.append('image', selectedImage);

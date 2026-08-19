@@ -261,34 +261,60 @@ def classic_adjust(img: Image.Image, sharpness: float, contrast: float, color: f
     return img
 
 
+def resize_longest_side(img: Image.Image, target_longest: int) -> Image.Image:
+    longest = max(img.width, img.height)
+    if longest <= 0 or longest == target_longest:
+        return img.copy()
+    ratio = target_longest / float(longest)
+    new_size = (
+        max(1, round(img.width * ratio)),
+        max(1, round(img.height * ratio)),
+    )
+    return img.resize(new_size, Image.LANCZOS)
+
+
 def enhance_with_esrgan_adjustable(image_path: str,
                                    strength: float = 0.55,
                                    sharpness: float = 1.15,
                                    contrast: float = 1.04,
                                    color: float = 1.02,
                                    outscale: float = 1.0):
+    del outscale  # size is now normalized server-side for reliability
     with Image.open(image_path) as src:
         original = src.convert("RGB")
-    base_target_size = (
-        max(1, round(original.width * outscale)),
-        max(1, round(original.height * outscale)),
-    )
-    base = original.resize(base_target_size, Image.LANCZOS) if outscale != 1 else original.copy()
+
+    input_longest = max(original.width, original.height)
+    target_longest = 1920
+    working_longest = 1024 if input_longest > target_longest else min(target_longest, input_longest)
+
+    working = resize_longest_side(original, working_longest)
+    base = resize_longest_side(original, target_longest) if input_longest != target_longest else original.copy()
+    if base.size != working.size:
+        base = resize_longest_side(base, target_longest)
+
+    work_input_path = IMAGE_DIR / f"esrgan_work_{uuid.uuid4().hex[:10]}.png"
+    working.save(str(work_input_path))
 
     try:
         import cv2
         upsampler = load_realesrgan_runtime()
-        bgr = cv2.imread(image_path, cv2.IMREAD_COLOR)
+        bgr = cv2.imread(str(work_input_path), cv2.IMREAD_COLOR)
         if bgr is None:
             raise RuntimeError("Không đọc được ảnh đầu vào")
-        esr_outscale = 2 if outscale <= 2 else 4
-        output, _ = upsampler.enhance(bgr, outscale=esr_outscale)
+        output, _ = upsampler.enhance(bgr, outscale=2)
         rgb = cv2.cvtColor(output, cv2.COLOR_BGR2RGB)
         enhanced = Image.fromarray(rgb)
-        if enhanced.size != base_target_size:
-            enhanced = enhanced.resize(base_target_size, Image.LANCZOS)
+        enhanced = resize_longest_side(enhanced, target_longest)
     except Exception as e:
         raise RuntimeError(f"ESRGAN runtime không chạy được: {e}") from e
+    finally:
+        try:
+            work_input_path.unlink(missing_ok=True)
+        except Exception:
+            pass
+
+    if base.size != enhanced.size:
+        base = base.resize(enhanced.size, Image.LANCZOS)
 
     mix = max(0.0, min(1.0, strength))
     blended = Image.blend(base, enhanced, mix)
