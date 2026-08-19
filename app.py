@@ -36,6 +36,10 @@ TC1_GEMINI_MODELS = [
     "gemini-3.1-flash-lite",
 ]
 TC1_GEMINI_MODELS = [m for m in TC1_GEMINI_MODELS if m]
+LOCAL_FFMPEG_DIRS = [
+    '/Users/kharua/Library/Application Support/anythingllm-desktop/storage/engines/ffmpeg/mac-arm64',
+    '/Applications/CapCut.app/Contents/Resources',
+]
 
 LANG_NAMES = {
     "auto": "Tự động nhận diện",
@@ -138,87 +142,150 @@ def _tc1_generate_with_fallback(client, prompt: str):
     raise last_error or RuntimeError("Không có Gemini model khả dụng cho TC1")
 
 
-def _group_whisper_segments(whisper_segs: list[dict]) -> list[dict]:
-    groups = []
-    current = None
-    for i, seg in enumerate(whisper_segs):
-        text = (seg.get("text") or "").strip()
-        duration = max(0.0, float(seg.get("end", 0)) - float(seg.get("start", 0)))
-        if current is None:
-            current = {
-                "start_idx": i,
-                "end_idx": i,
-                "start": seg["start"],
-                "end": seg["end"],
-                "texts": [text],
-                "duration": duration,
-            }
-            continue
-        gap = float(seg.get("start", 0)) - float(current["end"])
-        should_merge = (
-            current["duration"] < 3.5
-            or len(" ".join(current["texts"])) < 60
-        ) and gap <= 0.8 and (duration <= 3.0 or len(text) < 40)
-        if should_merge:
-            current["end_idx"] = i
-            current["end"] = seg["end"]
-            current["texts"].append(text)
-            current["duration"] = float(current["end"]) - float(current["start"])
-        else:
-            groups.append(current)
-            current = {
-                "start_idx": i,
-                "end_idx": i,
-                "start": seg["start"],
-                "end": seg["end"],
-                "texts": [text],
-                "duration": duration,
-            }
-    if current is not None:
-        groups.append(current)
-    return groups
+def _probe_audio_duration_seconds(audio_path: str) -> float:
+    import subprocess, shutil, wave, contextlib, os
+    ffprobe = shutil.which('ffprobe') or '/Users/kharua/Library/Application Support/anythingllm-desktop/storage/engines/ffmpeg/mac-arm64/ffprobe'
+    env = os.environ.copy()
+    for d in LOCAL_FFMPEG_DIRS:
+        env['PATH'] = f"{d}:{env.get('PATH','')}"
+    try:
+        if ffprobe and Path(ffprobe).exists():
+            out = subprocess.check_output([
+                ffprobe, '-v', 'error', '-show_entries', 'format=duration',
+                '-of', 'default=noprint_wrappers=1:nokey=1', audio_path
+            ], stderr=subprocess.STDOUT, env=env).decode().strip()
+            return float(out)
+    except Exception:
+        pass
+    try:
+        with contextlib.closing(wave.open(audio_path, 'rb')) as wf:
+            frames = wf.getnframes()
+            rate = wf.getframerate() or 1
+            return frames / float(rate)
+    except Exception:
+        return 0.0
 
 
-def _translate_tc1_groups_from_whisper(client, lang_name: str, groups: list[dict]) -> list[dict]:
-    if not groups:
+def _extract_local_whisper_timing(audio_path: str) -> list[dict]:
+    import os, tempfile
+    try:
+        import whisper
+    except Exception:
         return []
-    payload = [
+    ffmpeg_real = '/Users/kharua/Library/Application Support/anythingllm-desktop/storage/engines/ffmpeg/mac-arm64/ffmpeg'
+    ffmpeg_dir = tempfile.mkdtemp(prefix='tc1-ffmpeg-')
+    ffmpeg_link = Path(ffmpeg_dir) / 'ffmpeg'
+    try:
+        if Path(ffmpeg_real).exists() and not ffmpeg_link.exists():
+            ffmpeg_link.symlink_to(ffmpeg_real)
+    except Exception:
+        pass
+    env_path = f"{ffmpeg_dir}:{os.environ.get('PATH','')}"
+    os.environ['PATH'] = env_path
+    model = whisper.load_model('tiny')
+    result = model.transcribe(str(audio_path))
+    return [
         {
-            "group_index": idx,
-            "start": g["start"],
-            "end": g["end"],
-            "approx_source": " ".join([t for t in g["texts"] if t]).strip(),
+            'start': round(s['start'], 3),
+            'end': round(s['end'], 3),
+            'text': (s.get('text') or '').strip(),
         }
-        for idx, g in enumerate(groups)
+        for s in result.get('segments', [])
     ]
-    prompt = f"""Bạn là biên dịch viên subtitle Khmer/đa ngôn ngữ sang tiếng Việt.
-Ngôn ngữ gốc: {lang_name}
 
-Dữ liệu đầu vào là các CỤM segment đã được gộp từ Whisper để giữ timecode ổn định hơn.
-Nhiệm vụ của bạn là dịch theo từng CỤM, không được nhảy cụm và không được bỏ cụm.
 
-Với mỗi item, trả về:
-- `group_index`
-- `original`: transcript gốc đầy đủ hơn/đúng hơn nếu cần
-- `vi_full`: câu tiếng Việt ĐÚNG và ĐỦ Ý, có thể dài hơn để đủ nghĩa
-- `keywords`: 1-3 keyword quan trọng rút từ đúng nghĩa câu đó
+def _align_timing_blocks(whisper_segs: list[dict], block_count: int) -> list[tuple[float, float]]:
+    if block_count <= 0:
+        return []
+    if not whisper_segs:
+        return []
+    if len(whisper_segs) <= block_count:
+        timings = [(s['start'], s['end']) for s in whisper_segs]
+        last_end = timings[-1][1]
+        while len(timings) < block_count:
+            timings.append((last_end, last_end))
+        return timings
+    total_chars = [max(1, len((s.get('text') or '').strip())) for s in whisper_segs]
+    total = sum(total_chars)
+    target = total / float(block_count)
+    out = []
+    start_idx = 0
+    acc = 0
+    for i, chars in enumerate(total_chars):
+        acc += chars
+        remaining_segments = len(total_chars) - (i + 1)
+        remaining_blocks = block_count - len(out) - 1
+        should_close = acc >= target and remaining_segments >= remaining_blocks
+        if should_close or remaining_segments == remaining_blocks:
+            out.append((whisper_segs[start_idx]['start'], whisper_segs[i]['end']))
+            start_idx = i + 1
+            acc = 0
+            if len(out) == block_count - 1:
+                break
+    if start_idx < len(whisper_segs):
+        out.append((whisper_segs[start_idx]['start'], whisper_segs[-1]['end']))
+    while len(out) < block_count:
+        out.append(out[-1])
+    return out[:block_count]
 
-Quy tắc bắt buộc:
-- Giữ đúng số lượng item và đúng `group_index`.
-- Không bỏ ý giữa chừng.
-- Không nhảy thẳng tới câu cuối.
-- Ưu tiên đúng và đủ hơn là ngắn.
-- Không văn vẻ hóa, không bịa thêm bối cảnh.
-- Chỉ trả JSON array, không markdown.
 
-Input groups:
-{json.dumps(payload, ensure_ascii=False)}
+def _generate_tc1_blocks_from_audio(client, audio_path: str, lang_name: str) -> list[dict]:
+    uploaded = client.files.upload(file=audio_path)
+    try:
+        prompt = f"""Bạn đang xử lý audio quảng cáo/dịch vụ spa bằng tiếng Khmer.
+Ngôn ngữ chính của audio: {lang_name}
+
+Nhiệm vụ:
+- Nghe TOÀN BỘ file audio.
+- Chia nội dung thành các BLOCK theo ý nghĩa tự nhiên, theo đúng thứ tự xuất hiện.
+- Với mỗi block, trả về:
+  1. `block`: số thứ tự bắt đầu từ 1
+  2. `khmer_full`: transcript tiếng Khmer đầy đủ nhất có thể
+  3. `khmer_short`: bản Khmer rút gọn giữ ý chính
+  4. `vn_short`: bản tiếng Việt ngắn gọn, giữ ý chính
+  5. `vn_full`: bản tiếng Việt đầy đủ ý, có thể dài hơn để đúng và đủ
+
+Quy tắc cực kỳ quan trọng:
+- Ưu tiên ĐÚNG và ĐỦ hơn là ngắn.
+- Không được bịa thêm bối cảnh ngoài audio.
+- Không được nhảy ý, không được bỏ các ý giữa chừng.
+- Nếu transcript Khmer nghe không chắc 100%, vẫn cố ghi sát âm/nghĩa nhất có thể nhưng không tự chế sang chủ đề khác.
+- Chỉ trả JSON array, không markdown, không giải thích.
 
 Output schema:
-[{{"group_index":0,"original":"...","vi_full":"...","keywords":[{{"original":"...","vi":"..."}}]}}]"""
-    resp = _tc1_generate_with_fallback(client, prompt)
-    data = json.loads(_unwrap_json_text(resp.text))
-    return [item for item in data if isinstance(item, dict)]
+[
+  {{
+    "block": 1,
+    "khmer_full": "...",
+    "khmer_short": "...",
+    "vn_short": "...",
+    "vn_full": "..."
+  }}
+]"""
+        resp = _tc1_generate_with_fallback(client, [uploaded, prompt])
+        data = json.loads(_unwrap_json_text(resp.text))
+        return [item for item in data if isinstance(item, dict)]
+    finally:
+        try:
+            client.files.delete(name=uploaded.name)
+        except Exception:
+            pass
+
+
+def _keyword_looks_bad(text: str, full_vi: str) -> bool:
+    t = (text or '').strip()
+    base = (full_vi or '').strip()
+    if not t:
+        return True
+    if len(t) > 40:
+        return True
+    if len(t.split()) > 6:
+        return True
+    if base and t.lower() in base.lower():
+        # allow only short phrase-sized containment, reject near full sentence reuse
+        if len(t) > max(12, int(len(base) * 0.35)):
+            return True
+    return False
 
 
 def _extract_tc1_keywords_batch(client, lang_name: str, batch: list[dict]) -> dict[int, list]:
@@ -237,13 +304,15 @@ Ngôn ngữ gốc: {lang_name}
 
 Nhiệm vụ DUY NHẤT:
 - Dựa trên `original` và `vi_full` đã có sẵn,
-- trích ra 1-3 keyword/phrase quan trọng cho mỗi segment.
+- trích ra 2-4 keyword/phrase quan trọng cho mỗi block.
 
 Quy tắc:
 - KHÔNG sửa lại `vi_full`.
 - KHÔNG dịch lại cả câu.
-- Chỉ lấy keyword thật sự quan trọng: lợi ích, USP, số liệu, tên thương hiệu, CTA.
-- Nếu không có keyword rõ, vẫn trả mảng rỗng hoặc 1 keyword an toàn, không bịa.
+- Mỗi keyword phải NGẮN, tối đa khoảng 2-5 từ.
+- Không được trả lại gần-nguyên-câu hoặc fragment dài giống câu dịch.
+- Ưu tiên các nhóm: công nghệ, công dụng/lợi ích, nguồn gốc, USP, CTA, vùng tác động.
+- Nếu không có đủ 4 keyword, trả 1-3 keyword thật sự có ích; không bịa.
 - Giữ nguyên `index`.
 - Chỉ trả JSON array, không markdown.
 
@@ -254,44 +323,74 @@ Output schema:
 [{{"index":0,"keywords":[{{"original":"...","vi":"..."}}]}}]"""
     resp = _tc1_generate_with_fallback(client, prompt)
     extracted = json.loads(_unwrap_json_text(resp.text))
-    return {
-        int(item.get("index", -1)): item.get("keywords", [])
-        for item in extracted if isinstance(item, dict)
-    }
+    out = {}
+    base_map = {s['id']: s.get('vi_full', '') for s in batch}
+    for item in extracted:
+        if not isinstance(item, dict):
+            continue
+        idx = int(item.get('index', -1))
+        cleaned = []
+        seen = set()
+        for kw in item.get('keywords', []) or []:
+            if not isinstance(kw, dict):
+                continue
+            o = (kw.get('original') or '').strip()
+            v = (kw.get('vi') or '').strip()
+            key = (o.lower(), v.lower())
+            if key in seen:
+                continue
+            if _keyword_looks_bad(v, base_map.get(idx, '')):
+                continue
+            seen.add(key)
+            cleaned.append({'original': o, 'vi': v})
+        out[idx] = cleaned
+    return out
 
 
 def tc1_process(audio_path: str, language: str, gemini_key: str) -> dict:
-    whisper_result = transcribe_whisper_api(audio_path, language if language != "auto" else None)
-    whisper_segs = whisper_result["segments"]
-    detected_lang = whisper_result["language"]
-
+    del language  # Gemini full-audio understanding is the content source for local rebuild
     client = genai.Client(api_key=gemini_key)
-    lang_name = LANG_NAMES.get(detected_lang, detected_lang)
-    groups = _group_whisper_segments(whisper_segs)
-    translated_groups = _translate_tc1_groups_from_whisper(client, lang_name, groups)
-    group_map = {
-        int(item.get("group_index", idx)): item
-        for idx, item in enumerate(translated_groups)
-        if isinstance(item, dict)
-    }
+    blocks = _generate_tc1_blocks_from_audio(client, audio_path, 'Khmer')
+    if not blocks:
+        raise RuntimeError('Gemini không trả block nội dung nào')
+
+    whisper_timing = _extract_local_whisper_timing(audio_path)
+    timings = _align_timing_blocks(whisper_timing, len(blocks))
+    if not timings:
+        duration = _probe_audio_duration_seconds(audio_path)
+        count = len(blocks)
+        step = (duration / count) if duration > 0 and count > 0 else 5.0
+        timings = [(round(i * step, 3), round((i + 1) * step, 3)) for i in range(count)]
 
     segments = []
-    for gidx, group in enumerate(groups):
-        src = group_map.get(gidx, {})
-        group_original = (src.get("original") or " ".join(group.get("texts", [])) or "").strip()
-        group_vi = (src.get("vi_full") or "").strip()
-        group_keywords = src.get("keywords", []) if isinstance(src.get("keywords"), list) else []
+    for i, block in enumerate(blocks):
+        start, end = timings[i] if i < len(timings) else timings[-1]
+        vn_full = (block.get('vn_full') or '').strip()
         segment = {
-            "id": gidx,
-            "start": group["start"],
-            "end": group["end"],
-            "original": group_original,
-            "vi_full": group_vi if not _looks_bad_vi_full(group_vi) else "",
-            "keywords": group_keywords,
+            'id': i,
+            'start': start,
+            'end': end,
+            'original': (block.get('khmer_full') or block.get('khmer_short') or '').strip(),
+            'vi_full': vn_full if not _looks_bad_vi_full(vn_full) else '',
+            'keywords': [],
         }
         segments.append(segment)
 
-    return {"segments": segments, "language": detected_lang}
+    keyword_batch_size = 10
+    for start_idx in range(0, len(segments), keyword_batch_size):
+        batch = segments[start_idx:start_idx + keyword_batch_size]
+        keyword_map = _extract_tc1_keywords_batch(client, 'Khmer', batch)
+        for seg in batch:
+            kws = keyword_map.get(seg['id'])
+            if isinstance(kws, list) and kws:
+                seg['keywords'] = kws
+            else:
+                kh_short = (blocks[seg['id']].get('khmer_short') or '').strip()
+                vn_short = (blocks[seg['id']].get('vn_short') or '').strip()
+                if (kh_short or vn_short) and not _keyword_looks_bad(vn_short, seg.get('vi_full', '')):
+                    seg['keywords'] = [{'original': kh_short, 'vi': vn_short}]
+
+    return {'segments': segments, 'language': 'km'}
 
 
 # ── TC2: TikTok Vietnamese ────────────────────────────────────────────────────
@@ -572,8 +671,6 @@ def upload():
 
 @app.route("/api/process/<job_id>", methods=["POST"])
 def process(job_id):
-    if not OPENAI_API_KEY:
-        return jsonify({"error": "Server chưa cấu hình OpenAI key"}), 500
     data = request.json
     audio_path = data.get("audio_path")
     tool = data.get("tool", "tc1")
@@ -581,15 +678,12 @@ def process(job_id):
     gemini_key = data.get("gemini_key", "")
 
     try:
-        if tool == "tc1":
-            if not gemini_key:
-                return jsonify({"error": "Cần Gemini API key cho TC1"}), 400
-            result = tc1_process(audio_path, language, gemini_key)
-        else:
-            result = tc2_process(audio_path)
+        if not gemini_key:
+            return jsonify({"error": "Cần Gemini API key cho TC1"}), 400
+        result = tc1_process(audio_path, language, gemini_key)
 
         result["job_id"] = job_id
-        result["tool"] = tool
+        result["tool"] = "tc1"
         JOBS[job_id] = result
         return jsonify({"success": True, **result})
     except Exception as e:
@@ -612,13 +706,8 @@ def export(job_id):
     if job_id not in JOBS:
         return jsonify({"error": "Not found"}), 404
     job = JOBS[job_id]
-    tool = job.get("tool", "tc1")
-    if tool == "tc1":
-        srt = export_srt_tc1(job["segments"], mode)
-        fname = f"khmer_sub_{mode}.srt"
-    else:
-        srt = export_srt_tc2(job["segments"])
-        fname = "tiktok_vi_sub.srt"
+    srt = export_srt_tc1(job["segments"], mode)
+    fname = f"khmer_sub_{mode}.srt"
     tmp = tempfile.NamedTemporaryFile(mode="w", suffix=".srt", encoding="utf-8", delete=False)
     tmp.write(srt)
     tmp.close()

@@ -165,7 +165,6 @@ input[type=range] { width: 100%; accent-color: #7c3aed; }
     <div class="section-pane active" id="pane-subtitle">
       <div class="tool-tabs">
         <button class="tool-tab active" id="tab-tc1" onclick="switchTool('tc1')">🇰🇭 TC1<div style="font-size:11px;font-weight:400;margin-top:2px">Keyword sub + dịch Việt</div></button>
-        <button class="tool-tab" id="tab-tc2" onclick="switchTool('tc2')">🎵 TC2<div style="font-size:11px;font-weight:400;margin-top:2px">Full sub + cleanup</div></button>
       </div>
 
       <div id="uploadSection">
@@ -184,12 +183,8 @@ input[type=range] { width: 100%; accent-color: #7c3aed; }
           </select>
           <button class="btn btn-primary" id="processBtn" disabled onclick="startProcess()">✨ Xử lý</button>
         </div>
-        <div class="controls-row hidden" id="tc2Controls">
-          <button class="btn btn-teal" id="processBtn2" disabled onclick="startProcess()">✨ Xử lý + Cleanup</button>
-        </div>
         <div class="file-info" id="fileName"></div>
         <div class="note-box" id="tc1Note"><strong>TC1:</strong> Whisper chỉ giữ timecode, Gemini dịch theo cụm nội dung rồi mới bóc keyword.</div>
-        <div class="note-box hidden" id="tc2Note"><strong>TC2:</strong> Tự động transcribe tiếng Việt và cleanup filler words/cách viết.</div>
       </div>
 
       <div class="progress-card" id="progressCard">
@@ -210,17 +205,6 @@ input[type=range] { width: 100%; accent-color: #7c3aed; }
         <div id="segListTC1"></div>
       </div>
 
-      <div class="review-section" id="reviewTC2">
-        <div class="review-toolbar">
-          <h2>🎵 Review TikTok Sub</h2>
-          <div class="toolbar-actions">
-            <button class="btn btn-secondary" onclick="resetTool()">← File mới</button>
-            <button class="btn btn-secondary" onclick="saveEditsTC2()">💾 Lưu</button>
-            <button class="btn btn-teal" onclick="exportTC2()">📥 Xuất SRT</button>
-          </div>
-        </div>
-        <div id="segListTC2"></div>
-      </div>
     </div>
 
     <div class="section-pane" id="pane-enhance">
@@ -342,13 +326,11 @@ function switchSection(section) {
 }
 function switchTool(tool) {
   currentTool = tool;
-  ['tc1','tc2'].forEach(t => {
+  ['tc1'].forEach(t => {
     document.getElementById(`tab-${t}`).classList.toggle('active', t === tool);
   });
   document.getElementById('tc1Controls').classList.toggle('hidden', tool !== 'tc1');
-  document.getElementById('tc2Controls').classList.toggle('hidden', tool !== 'tc2');
   document.getElementById('tc1Note').classList.toggle('hidden', tool !== 'tc1');
-  document.getElementById('tc2Note').classList.toggle('hidden', tool !== 'tc2');
   resetTool();
 }
 function switchEnhanceMode(mode) {
@@ -396,7 +378,6 @@ function setFile(file) {
   selectedFile = file;
   document.getElementById('fileName').textContent = `📂 ${file.name} (${(file.size/1024/1024).toFixed(1)} MB)`;
   document.getElementById('processBtn').disabled = false;
-  document.getElementById('processBtn2').disabled = false;
 }
 
 async function startProcess() {
@@ -404,8 +385,8 @@ async function startProcess() {
   const language = document.getElementById('langSelect').value;
   document.getElementById('uploadSection').style.display = 'none';
   document.getElementById('progressCard').classList.add('show');
-  const stepMsg = currentTool === 'tc1' ? 'Bước 1: Whisper lấy timecode · Bước 2: Gemini dịch theo cụm nội dung' : 'Whisper đang nghe audio tiếng Việt...';
-  setProgress(currentTool === 'tc1' ? '🎙️ Đang xử lý audio...' : '🎵 Đang transcribe tiếng Việt...', stepMsg);
+  const stepMsg = 'Bước 1: Whisper lấy timecode · Bước 2: Gemini dịch theo cụm nội dung';
+  setProgress('🎙️ Đang xử lý audio...', stepMsg);
   try {
     const formData = new FormData();
     formData.append('audio', selectedFile);
@@ -435,15 +416,9 @@ function setProgress(label, step) {
 }
 function renderReview() {
   document.getElementById('progressCard').classList.remove('show');
-  if (currentTool === 'tc1') {
-    document.getElementById('reviewTC1').classList.add('show');
-    const list = document.getElementById('segListTC1'); list.innerHTML = '';
-    currentSegments.forEach((seg, i) => list.appendChild(createTC1Card(seg, i)));
-  } else {
-    document.getElementById('reviewTC2').classList.add('show');
-    const list = document.getElementById('segListTC2'); list.innerHTML = '';
-    currentSegments.forEach((seg, i) => list.appendChild(createTC2Card(seg, i)));
-  }
+  document.getElementById('reviewTC1').classList.add('show');
+  const list = document.getElementById('segListTC1'); list.innerHTML = '';
+  currentSegments.forEach((seg, i) => list.appendChild(createTC1Card(seg, i)));
 }
 function createTC1Card(seg, i) {
   const card = document.createElement('div');
@@ -490,20 +465,12 @@ async function autoTranslateKw(viInput, segIdx, kwIdx) {
   } catch(e) {}
   if (spinner) spinner.style.display = 'none';
 }
-function createTC2Card(seg, i) {
-  const card = document.createElement('div'); card.className = 'segment-card';
-  card.innerHTML = `<div class="segment-header"><span class="seg-num">#${i+1}</span><span class="tc-badge">${formatTC(seg.start)} → ${formatTC(seg.end)}</span></div><div class="field-row"><div class="field-label">Gốc (trước cleanup)</div><div class="orig-text">${escHtml(seg.original || '')}</div></div><div class="field-row"><div class="field-label">Sau cleanup (có thể sửa)</div><textarea class="edit-field tc2-cleaned" rows="2" data-idx="${i}">${escHtml(seg.cleaned || seg.original || '')}</textarea></div>`;
-  return card;
-}
 function collectEditsTC1() { document.querySelectorAll('.vi-full').forEach(ta => { const idx = parseInt(ta.dataset.idx); currentSegments[idx].vi_full = ta.value; }); }
 async function saveEdits() { collectEditsTC1(); const res = await fetch(`/api/save/${currentJobId}`, { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({segments:currentSegments}) }); if ((await res.json()).success) showToast('✅ Đã lưu!'); }
-function collectEditsTC2() { document.querySelectorAll('.tc2-cleaned').forEach(ta => { const idx = parseInt(ta.dataset.idx); currentSegments[idx].cleaned = ta.value; }); }
-async function saveEditsTC2() { collectEditsTC2(); const res = await fetch(`/api/save/${currentJobId}`, { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({segments:currentSegments}) }); if ((await res.json()).success) showToast('✅ Đã lưu!'); }
 function showExportModal() { collectEditsTC1(); document.getElementById('exportModal').classList.add('show'); }
 function closeModal() { document.getElementById('exportModal').classList.remove('show'); }
 async function doExport() { await saveEdits(); const mode = document.querySelector('input[name=exportMode]:checked').value; closeModal(); window.location.href = `/api/export/${currentJobId}?mode=${mode}`; showToast('📥 Đang tải SRT...'); }
-async function exportTC2() { await saveEditsTC2(); window.location.href = `/api/export/${currentJobId}`; showToast('📥 Đang tải SRT...'); }
-function resetTool() { currentJobId = null; currentSegments = []; selectedFile = null; document.getElementById('uploadSection').style.display = 'block'; document.getElementById('progressCard').classList.remove('show'); document.getElementById('reviewTC1').classList.remove('show'); document.getElementById('reviewTC2').classList.remove('show'); document.getElementById('fileName').textContent = ''; document.getElementById('processBtn').disabled = true; document.getElementById('processBtn2').disabled = true; fileInput.value = ''; }
+function resetTool() { currentJobId = null; currentSegments = []; selectedFile = null; document.getElementById('uploadSection').style.display = 'block'; document.getElementById('progressCard').classList.remove('show'); document.getElementById('reviewTC1').classList.remove('show'); document.getElementById('fileName').textContent = ''; document.getElementById('processBtn').disabled = true; fileInput.value = ''; }
 
 const imageDropZone = document.getElementById('imageDropZone');
 const imageInput = document.getElementById('imageInput');
