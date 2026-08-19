@@ -30,7 +30,12 @@ from PIL import Image, ImageEnhance, ImageFilter
 # ── Config ────────────────────────────────────────────────────────────────────
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "")
 GEMINI_MODEL = "gemini-3.1-flash-lite"
-TC1_GEMINI_MODEL = os.environ.get("TC1_GEMINI_MODEL", "gemini-2.5-flash")
+TC1_GEMINI_MODELS = [
+    os.environ.get("TC1_GEMINI_MODEL", "").strip(),
+    "gemini-3.1-flash",
+    "gemini-3.1-flash-lite",
+]
+TC1_GEMINI_MODELS = [m for m in TC1_GEMINI_MODELS if m]
 
 LANG_NAMES = {
     "auto": "Tự động nhận diện",
@@ -118,6 +123,19 @@ def _looks_bad_vi_full(text: str) -> bool:
     return False
 
 
+def _tc1_generate_with_fallback(client, prompt: str):
+    last_error = None
+    for model_name in TC1_GEMINI_MODELS:
+        try:
+            return client.models.generate_content(model=model_name, contents=prompt)
+        except Exception as e:
+            last_error = e
+            if "404" in str(e) or "NOT_FOUND" in str(e) or "not available" in str(e):
+                continue
+            raise
+    raise last_error or RuntimeError("Không có Gemini model khả dụng cho TC1")
+
+
 def _translate_tc1_batch(client, lang_name: str, batch: list[dict]) -> dict[int, dict]:
     if not batch:
         return {}
@@ -154,7 +172,7 @@ Input:
 
 Output schema:
 [{{"index":0,"original":"...","vi_full":"...","keywords":[{{"original":"...","vi":"..."}}]}}]"""
-    resp = client.models.generate_content(model=TC1_GEMINI_MODEL, contents=prompt)
+    resp = _tc1_generate_with_fallback(client, prompt)
     translated = json.loads(_unwrap_json_text(resp.text))
     return {int(item.get("index", -1)): item for item in translated if isinstance(item, dict)}
 
@@ -187,7 +205,7 @@ Input:
 
 Output schema:
 [{{"index":0,"vi_full":"...","keywords":[{{"original":"...","vi":"..."}}]}}]"""
-    resp = client.models.generate_content(model=TC1_GEMINI_MODEL, contents=prompt)
+    resp = _tc1_generate_with_fallback(client, prompt)
     repaired = json.loads(_unwrap_json_text(resp.text))
     return {int(item.get("index", -1)): item for item in repaired if isinstance(item, dict)}
 
