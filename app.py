@@ -30,6 +30,7 @@ from PIL import Image, ImageEnhance, ImageFilter
 # ── Config ────────────────────────────────────────────────────────────────────
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "")
 GEMINI_MODEL = "gemini-3.1-flash-lite"
+TC1_GEMINI_MODEL = os.environ.get("TC1_GEMINI_MODEL", "gemini-2.5-flash")
 
 LANG_NAMES = {
     "auto": "Tự động nhận diện",
@@ -117,6 +118,47 @@ def _looks_bad_vi_full(text: str) -> bool:
     return False
 
 
+def _translate_tc1_batch(client, lang_name: str, batch: list[dict]) -> dict[int, dict]:
+    if not batch:
+        return {}
+    payload = [
+        {
+            "index": s["index"],
+            "original": s["original"],
+            "start": s.get("start"),
+            "end": s.get("end"),
+        }
+        for s in batch
+    ]
+    prompt = f"""Bạn là biên dịch viên Khmer/đa ngôn ngữ sang tiếng Việt, chuyên subtitle quảng cáo/video.
+Ngôn ngữ gốc: {lang_name}
+
+Nhiệm vụ:
+- Dịch NGHĨA THẬT của từng segment sang tiếng Việt.
+- Ưu tiên TRUNG THÀNH với câu gốc hơn là văn vẻ.
+- Không được suy diễn thêm, không được dùng giọng văn thơ mộng nếu câu gốc không có.
+- Không được rút gọn thành fragment.
+- Không được đổi ý câu.
+- Giữ nguyên `index` và số lượng item.
+- `original` phải bám sát text gốc đầu vào, không tự viết lại lung tung.
+- `keywords` chỉ được rút từ đúng nghĩa của câu đó.
+
+Nếu câu gốc ngắn/khó hiểu:
+- hãy dịch sát nghĩa nhất có thể,
+- tuyệt đối không bịa thêm bối cảnh kiểu "thiền định", "kỳ bí", v.v. nếu câu gốc không nói vậy.
+
+Chỉ trả JSON array, không markdown.
+
+Input:
+{json.dumps(payload, ensure_ascii=False)}
+
+Output schema:
+[{{"index":0,"original":"...","vi_full":"...","keywords":[{{"original":"...","vi":"..."}}]}}]"""
+    resp = client.models.generate_content(model=TC1_GEMINI_MODEL, contents=prompt)
+    translated = json.loads(_unwrap_json_text(resp.text))
+    return {int(item.get("index", -1)): item for item in translated if isinstance(item, dict)}
+
+
 def _repair_tc1_bad_segments(client, lang_name: str, segments: list[dict]) -> dict[int, dict]:
     if not segments:
         return {}
@@ -135,6 +177,7 @@ Nhiệm vụ: sửa lại các câu tiếng Việt bị thiếu / sai / cụt.
 Yêu cầu cực kỳ quan trọng:
 - `vi_full` phải là câu tiếng Việt đầy đủ ý của câu gốc, không được rút gọn.
 - Không trả về số vô nghĩa, không trả về fragment cụt.
+- Không được bịa thêm ý không có trong câu gốc.
 - `keywords`: 1-3 keyword/phrase ngắn, lấy từ ý nghĩa thật của câu.
 - Giữ đúng `index`.
 - Chỉ trả JSON array, không markdown.
@@ -144,7 +187,7 @@ Input:
 
 Output schema:
 [{{"index":0,"vi_full":"...","keywords":[{{"original":"...","vi":"..."}}]}}]"""
-    resp = client.models.generate_content(model=GEMINI_MODEL, contents=prompt)
+    resp = client.models.generate_content(model=TC1_GEMINI_MODEL, contents=prompt)
     repaired = json.loads(_unwrap_json_text(resp.text))
     return {int(item.get("index", -1)): item for item in repaired if isinstance(item, dict)}
 
@@ -165,38 +208,12 @@ def tc1_process(audio_path: str, language: str, gemini_key: str) -> dict:
         }
         for i, ws in enumerate(whisper_segs)
     ]
-    n = len(segment_payload)
 
-    prompt = f"""Bạn là chuyên gia làm subtitle đa ngôn ngữ.
-Ngôn ngữ gốc: {lang_name}
-Dữ liệu đầu vào bên dưới đã được chia segment sẵn từ Whisper. Hãy GIỮ NGUYÊN số segment và THỨ TỰ segment. Đừng tự gộp, đừng tự tách, đừng bỏ segment nào.
-
-Với mỗi segment, hãy trả về:
-1. `index`: giữ nguyên index đầu vào
-2. `original`: nguyên văn câu gốc bằng native script, ưu tiên giữ đúng theo input
-3. `vi_full`: câu tiếng Việt FULL, đủ ý, tự nhiên; tuyệt đối không rút gọn thành fragment
-4. `keywords`: 1-3 keyword/phrase quan trọng của segment đó, schema {{"original":"...","vi":"..."}}
-
-Quy tắc bắt buộc:
-- `vi_full` phải dịch trọn ý câu gốc.
-- Không được trả số vô nghĩa, không được viết cụt lủn.
-- Nếu câu gốc ngắn thì vẫn phải là một câu/dòng tiếng Việt hợp nghĩa.
-- Chỉ trả JSON array, không markdown, không giải thích.
-- Phải trả đúng {n} object theo đúng thứ tự input.
-
-Input segments:
-{json.dumps(segment_payload, ensure_ascii=False)}
-
-Output schema:
-[{{"index":0,"original":"...","vi_full":"...","keywords":[{{"original":"...","vi":"..."}}]}}]"""
-
-    resp = client.models.generate_content(model=GEMINI_MODEL, contents=prompt)
-    gemini_segs = json.loads(_unwrap_json_text(resp.text))
-    by_index = {
-        int(item.get("index", idx)): item
-        for idx, item in enumerate(gemini_segs)
-        if isinstance(item, dict)
-    }
+    by_index = {}
+    batch_size = 8
+    for start_idx in range(0, len(segment_payload), batch_size):
+        batch = segment_payload[start_idx:start_idx + batch_size]
+        by_index.update(_translate_tc1_batch(client, lang_name, batch))
 
     segments = []
     suspicious = []
