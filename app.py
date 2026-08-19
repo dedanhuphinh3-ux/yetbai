@@ -123,25 +123,6 @@ def _looks_bad_vi_full(text: str) -> bool:
     return False
 
 
-def _align_full_audio_items_to_segments(items: list[dict], segment_count: int) -> list[dict]:
-    if segment_count <= 0:
-        return []
-    cleaned = [item for item in items if isinstance(item, dict) and ((item.get("original") or "").strip() or (item.get("vi_full") or "").strip())]
-    if not cleaned:
-        return [{} for _ in range(segment_count)]
-    if len(cleaned) == segment_count:
-        return cleaned
-    aligned = []
-    if len(cleaned) > segment_count:
-        for i in range(segment_count):
-            src_idx = round(i * (len(cleaned) - 1) / max(1, segment_count - 1)) if segment_count > 1 else 0
-            aligned.append(cleaned[src_idx])
-        return aligned
-    # len(cleaned) < segment_count: stretch items across remaining timing slots
-    for i in range(segment_count):
-        src_idx = round(i * (len(cleaned) - 1) / max(1, segment_count - 1)) if segment_count > 1 else 0
-        aligned.append(cleaned[src_idx])
-    return aligned
 
 
 def _tc1_generate_with_fallback(client, prompt: str):
@@ -157,90 +138,87 @@ def _tc1_generate_with_fallback(client, prompt: str):
     raise last_error or RuntimeError("Không có Gemini model khả dụng cho TC1")
 
 
-def _understand_tc1_full_audio(client, audio_path: str, lang_name: str, timing_segments: list[dict]) -> list[dict]:
-    uploaded = client.files.upload(file=audio_path)
-    try:
-        timing_hint = {
-            "segment_count": len(timing_segments),
-            "timing": [
-                {"index": s["index"], "start": s.get("start"), "end": s.get("end")}
-                for s in timing_segments
-            ]
+def _group_whisper_segments(whisper_segs: list[dict]) -> list[dict]:
+    groups = []
+    current = None
+    for i, seg in enumerate(whisper_segs):
+        text = (seg.get("text") or "").strip()
+        duration = max(0.0, float(seg.get("end", 0)) - float(seg.get("start", 0)))
+        if current is None:
+            current = {
+                "start_idx": i,
+                "end_idx": i,
+                "start": seg["start"],
+                "end": seg["end"],
+                "texts": [text],
+                "duration": duration,
+            }
+            continue
+        gap = float(seg.get("start", 0)) - float(current["end"])
+        should_merge = (
+            current["duration"] < 3.5
+            or len(" ".join(current["texts"])) < 60
+        ) and gap <= 0.8 and (duration <= 3.0 or len(text) < 40)
+        if should_merge:
+            current["end_idx"] = i
+            current["end"] = seg["end"]
+            current["texts"].append(text)
+            current["duration"] = float(current["end"]) - float(current["start"])
+        else:
+            groups.append(current)
+            current = {
+                "start_idx": i,
+                "end_idx": i,
+                "start": seg["start"],
+                "end": seg["end"],
+                "texts": [text],
+                "duration": duration,
+            }
+    if current is not None:
+        groups.append(current)
+    return groups
+
+
+def _translate_tc1_groups_from_whisper(client, lang_name: str, groups: list[dict]) -> list[dict]:
+    if not groups:
+        return []
+    payload = [
+        {
+            "group_index": idx,
+            "start": g["start"],
+            "end": g["end"],
+            "approx_source": " ".join([t for t in g["texts"] if t]).strip(),
         }
-        prompt = f"""Bạn đang làm subtitle cho toàn bộ file audio.
-Ngôn ngữ chính của audio: {lang_name}
-
-Audio đính kèm là SOURCE OF TRUTH cho nội dung nói.
-Whisper chỉ dùng để cung cấp MỐC TIMECODE, không dùng để quyết định nghĩa.
-
-Nhiệm vụ:
-- Nghe TOÀN BỘ file audio.
-- Chia nội dung thành dãy câu/đơn vị lời nói theo đúng thứ tự xuất hiện.
-- Với mỗi item, trả về:
-  1. `seq`: số thứ tự liên tục từ 0
-  2. `original`: câu gốc / transcript bằng ngôn ngữ đang nói
-  3. `vi_full`: bản dịch tiếng Việt ĐÚNG VÀ ĐỦ Ý
-  4. `keywords`: 1-3 keyword quan trọng rút từ đúng nghĩa câu đó
-
-Quy tắc cực kỳ quan trọng:
-- Ưu tiên ĐÚNG và ĐỦ hơn là ngắn.
-- Không được bỏ ý giữa chừng.
-- Không được nhảy thẳng tới câu cuối rồi bỏ qua các câu giữa.
-- Có thể viết `vi_full` dài hơn nếu cần để đủ nghĩa.
-- Không văn vẻ hóa, không bịa thêm bối cảnh.
-- Giữ đúng trình tự nội dung audio.
-- Chỉ trả JSON array, không markdown.
-
-Đây là timing hint để bạn biết audio có khoảng bao nhiêu đơn vị lời nói:
-{json.dumps(timing_hint, ensure_ascii=False)}
-
-Output schema:
-[{{"seq":0,"original":"...","vi_full":"...","keywords":[{{"original":"...","vi":"..."}}]}}]"""
-        resp = _tc1_generate_with_fallback(client, [uploaded, prompt])
-        data = json.loads(_unwrap_json_text(resp.text))
-        return [item for item in data if isinstance(item, dict)]
-    finally:
-        try:
-            client.files.delete(name=uploaded.name)
-        except Exception:
-            pass
-
-
-def _translate_tc1_from_transcript_batch(client, lang_name: str, batch: list[dict]) -> dict[int, str]:
-    if not batch:
-        return {}
-    payload = []
-    for i, s in enumerate(batch):
-        payload.append({
-            "index": s["id"],
-            "original": s["original"],
-            "prev_original": batch[i-1]["original"] if i > 0 else "",
-            "next_original": batch[i+1]["original"] if i + 1 < len(batch) else "",
-        })
-    prompt = f"""Bạn là biên dịch viên subtitle rất kỹ, dịch sang tiếng Việt cho video quảng cáo/làm đẹp.
+        for idx, g in enumerate(groups)
+    ]
+    prompt = f"""Bạn là biên dịch viên subtitle Khmer/đa ngôn ngữ sang tiếng Việt.
 Ngôn ngữ gốc: {lang_name}
 
-Nhiệm vụ DUY NHẤT:
-- Dịch `original` sang `vi_full` cho từng item.
-- Được quyền dùng `prev_original` và `next_original` để hiểu NGỮ CẢNH.
+Dữ liệu đầu vào là các CỤM segment đã được gộp từ Whisper để giữ timecode ổn định hơn.
+Nhiệm vụ của bạn là dịch theo từng CỤM, không được nhảy cụm và không được bỏ cụm.
 
-Yêu cầu cực kỳ quan trọng:
-- `vi_full` phải ĐỦ Ý, không được lược bỏ chi tiết quan trọng.
-- Câu Việt có thể dài hơn câu gốc nếu cần để đủ nghĩa.
-- Ưu tiên ĐÚNG và ĐỦ hơn là ngắn.
-- Không văn vẻ hóa, không bịa thêm ý, không thêm cảm xúc không có trong câu gốc.
-- Không được dịch thành câu quá ngắn nếu câu gốc có nhiều ý.
-- Giữ nguyên `index`.
+Với mỗi item, trả về:
+- `group_index`
+- `original`: transcript gốc đầy đủ hơn/đúng hơn nếu cần
+- `vi_full`: câu tiếng Việt ĐÚNG và ĐỦ Ý, có thể dài hơn để đủ nghĩa
+- `keywords`: 1-3 keyword quan trọng rút từ đúng nghĩa câu đó
+
+Quy tắc bắt buộc:
+- Giữ đúng số lượng item và đúng `group_index`.
+- Không bỏ ý giữa chừng.
+- Không nhảy thẳng tới câu cuối.
+- Ưu tiên đúng và đủ hơn là ngắn.
+- Không văn vẻ hóa, không bịa thêm bối cảnh.
 - Chỉ trả JSON array, không markdown.
 
-Input:
+Input groups:
 {json.dumps(payload, ensure_ascii=False)}
 
 Output schema:
-[{{"index":0,"vi_full":"..."}}]"""
+[{{"group_index":0,"original":"...","vi_full":"...","keywords":[{{"original":"...","vi":"..."}}]}}]"""
     resp = _tc1_generate_with_fallback(client, prompt)
-    translated = json.loads(_unwrap_json_text(resp.text))
-    return {int(item.get("index", -1)): (item.get("vi_full") or "").strip() for item in translated if isinstance(item, dict)}
+    data = json.loads(_unwrap_json_text(resp.text))
+    return [item for item in data if isinstance(item, dict)]
 
 
 def _extract_tc1_keywords_batch(client, lang_name: str, batch: list[dict]) -> dict[int, list]:
@@ -289,34 +267,31 @@ def tc1_process(audio_path: str, language: str, gemini_key: str) -> dict:
 
     client = genai.Client(api_key=gemini_key)
     lang_name = LANG_NAMES.get(detected_lang, detected_lang)
-    timing_segments = [
-        {
-            "index": i,
-            "start": ws["start"],
-            "end": ws["end"],
-        }
-        for i, ws in enumerate(whisper_segs)
-    ]
-
-    full_audio_items = _understand_tc1_full_audio(client, audio_path, lang_name, timing_segments)
-    if not full_audio_items:
-        raise RuntimeError("Gemini không trả được transcript/dịch từ audio")
-    aligned_items = _align_full_audio_items_to_segments(full_audio_items, len(whisper_segs))
+    groups = _group_whisper_segments(whisper_segs)
+    translated_groups = _translate_tc1_groups_from_whisper(client, lang_name, groups)
+    group_map = {
+        int(item.get("group_index", idx)): item
+        for idx, item in enumerate(translated_groups)
+        if isinstance(item, dict)
+    }
 
     segments = []
-    for i, ws in enumerate(whisper_segs):
-        src = aligned_items[i] if i < len(aligned_items) else {}
-        segment = {
-            "id": i,
-            "start": ws["start"],
-            "end": ws["end"],
-            "original": (src.get("original") or ws["text"] or "").strip(),
-            "vi_full": (src.get("vi_full") or "").strip(),
-            "keywords": src.get("keywords", []) if isinstance(src.get("keywords"), list) else [],
-        }
-        if _looks_bad_vi_full(segment["vi_full"]):
-            segment["vi_full"] = ""
-        segments.append(segment)
+    for gidx, group in enumerate(groups):
+        src = group_map.get(gidx, {})
+        group_original = (src.get("original") or " ".join(group.get("texts", [])) or "").strip()
+        group_vi = (src.get("vi_full") or "").strip()
+        group_keywords = src.get("keywords", []) if isinstance(src.get("keywords"), list) else []
+        for i in range(group["start_idx"], group["end_idx"] + 1):
+            ws = whisper_segs[i]
+            segment = {
+                "id": i,
+                "start": ws["start"],
+                "end": ws["end"],
+                "original": group_original,
+                "vi_full": group_vi if not _looks_bad_vi_full(group_vi) else "",
+                "keywords": group_keywords,
+            }
+            segments.append(segment)
 
     return {"segments": segments, "language": detected_lang}
 
