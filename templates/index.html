@@ -529,9 +529,12 @@ function setImageFile(file) {
 function syncRange(name) { document.getElementById(name + 'Val').textContent = document.getElementById(name + 'Range').value; }
 async function startEnhance() {
   if (!selectedImage) return;
-  document.getElementById('enhanceBtn').disabled = true;
+  const btn = document.getElementById('enhanceBtn');
+  btn.disabled = true;
   document.getElementById('enhanceProgress').classList.add('show');
-  document.getElementById('enhanceProgressLabel').textContent = currentEnhanceMode === 'gpt' ? '✨ GPT Image đang enhance...' : '🎛️ ESRGAN / Enhance đang xử lý...';
+  const label = document.getElementById('enhanceProgressLabel');
+  label.textContent = currentEnhanceMode === 'gpt' ? '✨ GPT Image đang enhance...' : '🎛️ ESRGAN đang xử lý... (~2-3 phút)';
+  document.getElementById('enhanceProgressStep').textContent = currentEnhanceMode === 'esrgan' ? 'Anh đợi nhé — đang chạy AI trên server...' : '';
   try {
     const fd = new FormData();
     fd.append('image', selectedImage);
@@ -551,22 +554,60 @@ async function startEnhance() {
       try { const data = await res.json(); msg = data.error || msg; } catch(e) {}
       throw new Error(msg);
     }
-    const blob = await res.blob();
-    resultImageUrl = URL.createObjectURL(blob);
-    document.getElementById('resultPreview').src = resultImageUrl;
-    document.getElementById('resultMeta').textContent = res.headers.get('X-Output-Filename') || 'Đã enhance';
-    document.getElementById('engineChip').textContent = 'Engine: ' + (res.headers.get('X-Enhance-Engine') || currentEnhanceMode);
-    const outImg = new Image();
-    outImg.onload = () => { document.getElementById('sizeChip').textContent = `Kích thước: ${outImg.width}×${outImg.height}`; };
-    outImg.src = resultImageUrl;
-    const dl = document.getElementById('downloadBtn');
-    dl.href = resultImageUrl; dl.classList.remove('hidden');
+    const ctype = res.headers.get('content-type') || '';
+    if (ctype.includes('application/json')) {
+      // Async ESRGAN job
+      const data = await res.json();
+      if (!data.job_id) throw new Error(data.error || 'Không nhận được job ID');
+      await pollEsrganJob(data.job_id, label);
+    } else {
+      // Synchronous GPT result
+      await handleImageResponse(res);
+    }
     showToast('✅ Enhance xong');
   } catch(err) {
     showToast('❌ ' + err.message, true);
   }
   document.getElementById('enhanceProgress').classList.remove('show');
-  document.getElementById('enhanceBtn').disabled = false;
+  btn.disabled = false;
+}
+
+async function handleImageResponse(res) {
+  const blob = await res.blob();
+  resultImageUrl = URL.createObjectURL(blob);
+  document.getElementById('resultPreview').src = resultImageUrl;
+  document.getElementById('resultMeta').textContent = res.headers.get('X-Output-Filename') || 'Đã enhance';
+  document.getElementById('engineChip').textContent = 'Engine: ' + (res.headers.get('X-Enhance-Engine') || currentEnhanceMode);
+  const outImg = new Image();
+  outImg.onload = () => { document.getElementById('sizeChip').textContent = `Kích thước: ${outImg.width}×${outImg.height}`; };
+  outImg.src = resultImageUrl;
+  const dl = document.getElementById('downloadBtn');
+  dl.href = resultImageUrl; dl.classList.remove('hidden');
+}
+
+async function pollEsrganJob(jobId, labelEl) {
+  let elapsed = 0;
+  const step = document.getElementById('enhanceProgressStep');
+  while (elapsed < 360) {
+    await new Promise(r => setTimeout(r, 5000));
+    elapsed += 5;
+    if (labelEl) labelEl.textContent = `🎛️ ESRGAN đang xử lý... (${elapsed}s)`;
+    if (step) step.textContent = 'Vui lòng đợi — anh có thể làm việc khác trong lúc này';
+    const res = await fetch(`/api/enhance-status/${jobId}`);
+    if (!res.ok) {
+      let msg = 'ESRGAN lỗi';
+      try { const d = await res.json(); msg = d.error || msg; } catch(e) {}
+      throw new Error(msg);
+    }
+    const ctype = res.headers.get('content-type') || '';
+    if (ctype.includes('image/')) {
+      await handleImageResponse(res);
+      return;
+    }
+    const d = await res.json();
+    if (d.status === 'error') throw new Error(d.error || 'ESRGAN lỗi');
+  }
+  throw new Error('ESRGAN timeout — ảnh quá lớn hoặc server bận');
 }
 function resetEnhance() {
   selectedImage = null;

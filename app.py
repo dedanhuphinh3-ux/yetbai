@@ -16,6 +16,7 @@ import json
 import uuid
 import base64
 import tempfile
+import threading
 import warnings
 warnings.filterwarnings("ignore")
 
@@ -59,6 +60,8 @@ IMAGE_DIR = Path(tempfile.gettempdir()) / "klm_images"
 IMAGE_DIR.mkdir(exist_ok=True)
 WEIGHTS_DIR = Path(tempfile.gettempdir()) / "klm_realesrgan_weights"
 WEIGHTS_DIR.mkdir(exist_ok=True)
+JOBS_DIR = Path(tempfile.gettempdir()) / "klm_jobs"
+JOBS_DIR.mkdir(exist_ok=True)
 
 app = Flask(__name__)
 app.config["MAX_CONTENT_LENGTH"] = 200 * 1024 * 1024  # 200MB
@@ -446,6 +449,20 @@ def export(job_id):
     return send_file(tmp.name, as_attachment=True, download_name=fname)
 
 
+def _run_esrgan_job(job_id: str, input_path: str, params: dict):
+    """Background thread: run ESRGAN and write result to JOBS_DIR/<job_id>/."""
+    job_dir = JOBS_DIR / job_id
+    status_file = job_dir / "status.json"
+    output_file = job_dir / "output.png"
+    try:
+        out_path, _ = enhance_with_esrgan_adjustable(input_path, **params)
+        import shutil
+        shutil.copy(out_path, str(output_file))
+        status_file.write_text('{"status":"done"}', encoding="utf-8")
+    except Exception as e:
+        status_file.write_text(json.dumps({"status": "error", "error": str(e)}), encoding="utf-8")
+
+
 @app.route("/api/enhance-image", methods=["POST"])
 def enhance_image():
     if "image" not in request.files:
@@ -454,35 +471,54 @@ def enhance_image():
     image = request.files["image"]
     mode = request.form.get("mode", "gpt")
     ext = Path(image.filename or "image.png").suffix or ".png"
-    input_path = IMAGE_DIR / f"input_{uuid.uuid4().hex[:10]}{ext}"
-    image.save(str(input_path))
 
-    try:
-        if mode == "gpt":
+    if mode == "gpt":
+        input_path = IMAGE_DIR / f"input_{uuid.uuid4().hex[:10]}{ext}"
+        image.save(str(input_path))
+        try:
             prompt = request.form.get("prompt", "")
             output_path = enhance_with_gpt_image(str(input_path), prompt)
-            engine = "gpt-image-1"
-        else:
-            strength = float(request.form.get("strength", "55")) / 100.0
-            sharpness = float(request.form.get("sharpness", "115")) / 100.0
-            contrast = float(request.form.get("contrast", "104")) / 100.0
-            color = float(request.form.get("color", "102")) / 100.0
-            outscale = float(request.form.get("outscale", "1"))
-            output_path, engine = enhance_with_esrgan_adjustable(
-                str(input_path),
-                strength=strength,
-                sharpness=sharpness,
-                contrast=contrast,
-                color=color,
-                outscale=outscale,
-            )
+            response = send_file(output_path, mimetype="image/png", as_attachment=False, download_name=Path(output_path).name)
+            response.headers["X-Enhance-Engine"] = "gpt-image-1"
+            response.headers["X-Output-Filename"] = Path(output_path).name
+            return response
+        except Exception as e:
+            return jsonify({"error": str(e)}), 500
+    else:
+        # Async ESRGAN path
+        job_id = uuid.uuid4().hex[:12]
+        job_dir = JOBS_DIR / job_id
+        job_dir.mkdir(exist_ok=True)
+        input_path = job_dir / f"input{ext}"
+        image.save(str(input_path))
+        params = {
+            "strength": float(request.form.get("strength", "55")) / 100.0,
+            "sharpness": float(request.form.get("sharpness", "115")) / 100.0,
+            "contrast": float(request.form.get("contrast", "104")) / 100.0,
+            "color": float(request.form.get("color", "102")) / 100.0,
+            "outscale": float(request.form.get("outscale", "1")),
+        }
+        (job_dir / "status.json").write_text('{"status":"processing"}', encoding="utf-8")
+        t = threading.Thread(target=_run_esrgan_job, args=(job_id, str(input_path), params), daemon=True)
+        t.start()
+        return jsonify({"job_id": job_id, "status": "processing"})
 
-        response = send_file(output_path, mimetype="image/png", as_attachment=False, download_name=Path(output_path).name)
-        response.headers["X-Enhance-Engine"] = engine
-        response.headers["X-Output-Filename"] = Path(output_path).name
+
+@app.route("/api/enhance-status/<job_id>")
+def enhance_status(job_id):
+    job_dir = JOBS_DIR / job_id
+    status_file = job_dir / "status.json"
+    output_file = job_dir / "output.png"
+    if not status_file.exists():
+        return jsonify({"error": "Job not found"}), 404
+    status = json.loads(status_file.read_text(encoding="utf-8"))
+    if status.get("status") == "done" and output_file.exists():
+        response = send_file(str(output_file), mimetype="image/png", as_attachment=False, download_name=f"enhanced_{job_id}.png")
+        response.headers["X-Enhance-Engine"] = "esrgan"
         return response
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
+    elif status.get("status") == "error":
+        return jsonify({"error": status.get("error", "Unknown error")}), 500
+    return jsonify({"status": "processing"})
 
 
 if __name__ == "__main__":
