@@ -136,45 +136,52 @@ def _tc1_generate_with_fallback(client, prompt: str):
     raise last_error or RuntimeError("Không có Gemini model khả dụng cho TC1")
 
 
-def _translate_tc1_batch(client, lang_name: str, batch: list[dict]) -> dict[int, dict]:
-    if not batch:
+def _transcribe_translate_tc1_from_audio(client, audio_path: str, lang_name: str, timing_segments: list[dict]) -> dict[int, dict]:
+    if not timing_segments:
         return {}
     payload = [
         {
             "index": s["index"],
-            "original": s["original"],
             "start": s.get("start"),
             "end": s.get("end"),
         }
-        for s in batch
+        for s in timing_segments
     ]
-    prompt = f"""Bạn là biên dịch viên Khmer/đa ngôn ngữ sang tiếng Việt, chuyên subtitle quảng cáo/video.
-Ngôn ngữ gốc: {lang_name}
+    uploaded = client.files.upload(file=audio_path)
+    try:
+        prompt = f"""Bạn đang xử lý subtitle audio.
+Ngôn ngữ chính của audio: {lang_name}
 
-Nhiệm vụ DUY NHẤT:
-- Dịch NGHĨA THẬT của từng segment sang tiếng Việt.
+Audio đính kèm mới là SOURCE OF TRUTH cho nội dung nói.
+Danh sách segment bên dưới chỉ dùng để GIỮ KHUNG index/timecode.
+
+Nhiệm vụ:
+- Nghe audio đính kèm.
+- Với mỗi `index` trong danh sách segment, hãy điền:
+  1. `original`: câu gốc bằng native script / ngôn ngữ thật đang nói trong audio
+  2. `vi_full`: bản dịch tiếng Việt đầy đủ ý, sát nghĩa
 
 Quy tắc bắt buộc:
-- Ưu tiên TRUNG THÀNH với câu gốc hơn là văn vẻ.
-- Không được suy diễn thêm.
-- Không được dùng giọng văn thơ mộng nếu câu gốc không có.
-- Không được đổi ý câu.
-- Không được rút gọn thành fragment.
-- Không thêm lời giải thích, không thêm bối cảnh, không thêm cảm xúc.
-- `original` phải bám sát text gốc đầu vào.
-- Giữ nguyên `index` và số lượng item.
-- Nếu câu gốc ngắn/khó hiểu, vẫn dịch sát nghĩa nhất có thể, không bịa thêm ý.
+- Giữ nguyên số lượng object và đúng `index` như input.
+- Dựa vào AUDIO để hiểu câu, không phụ thuộc transcript giả định bên ngoài.
+- `vi_full` phải sát nghĩa, không văn vẻ hóa, không bịa thêm bối cảnh.
+- Không được viết cụt.
+- Nếu một segment rất ngắn, vẫn trả câu/dòng sát nghĩa nhất có thể.
+- Chỉ trả JSON array, không markdown.
 
-Chỉ trả JSON array, không markdown.
-
-Input:
+Input segments:
 {json.dumps(payload, ensure_ascii=False)}
 
 Output schema:
 [{{"index":0,"original":"...","vi_full":"..."}}]"""
-    resp = _tc1_generate_with_fallback(client, prompt)
-    translated = json.loads(_unwrap_json_text(resp.text))
-    return {int(item.get("index", -1)): item for item in translated if isinstance(item, dict)}
+        resp = _tc1_generate_with_fallback(client, [uploaded, prompt])
+        translated = json.loads(_unwrap_json_text(resp.text))
+        return {int(item.get("index", -1)): item for item in translated if isinstance(item, dict)}
+    finally:
+        try:
+            client.files.delete(name=uploaded.name)
+        except Exception:
+            pass
 
 
 def _extract_tc1_keywords_batch(client, lang_name: str, batch: list[dict]) -> dict[int, list]:
@@ -216,39 +223,6 @@ Output schema:
     }
 
 
-def _repair_tc1_bad_segments(client, lang_name: str, segments: list[dict]) -> dict[int, dict]:
-    if not segments:
-        return {}
-    repair_payload = [
-        {
-            "index": s["index"],
-            "original": s["original"],
-            "broken_vi_full": s.get("vi_full", ""),
-        }
-        for s in segments
-    ]
-    prompt = f"""Bạn là biên dịch viên subtitle rất kỹ tính.
-Ngôn ngữ gốc: {lang_name}
-Nhiệm vụ: sửa lại các câu tiếng Việt bị thiếu / sai / cụt.
-
-Yêu cầu cực kỳ quan trọng:
-- `vi_full` phải là câu tiếng Việt đầy đủ ý của câu gốc, không được rút gọn.
-- Không trả về số vô nghĩa, không trả về fragment cụt.
-- Không được bịa thêm ý không có trong câu gốc.
-- Không được thêm keyword ở bước này.
-- Giữ đúng `index`.
-- Chỉ trả JSON array, không markdown.
-
-Input:
-{json.dumps(repair_payload, ensure_ascii=False)}
-
-Output schema:
-[{{"index":0,"vi_full":"..."}}]"""
-    resp = _tc1_generate_with_fallback(client, prompt)
-    repaired = json.loads(_unwrap_json_text(resp.text))
-    return {int(item.get("index", -1)): item for item in repaired if isinstance(item, dict)}
-
-
 def tc1_process(audio_path: str, language: str, gemini_key: str) -> dict:
     whisper_result = transcribe_whisper_api(audio_path, language if language != "auto" else None)
     whisper_segs = whisper_result["segments"]
@@ -256,46 +230,33 @@ def tc1_process(audio_path: str, language: str, gemini_key: str) -> dict:
 
     client = genai.Client(api_key=gemini_key)
     lang_name = LANG_NAMES.get(detected_lang, detected_lang)
-    segment_payload = [
+    timing_segments = [
         {
             "index": i,
             "start": ws["start"],
             "end": ws["end"],
-            "original": ws["text"],
         }
         for i, ws in enumerate(whisper_segs)
     ]
 
-    by_index = {}
-    batch_size = 8
-    for start_idx in range(0, len(segment_payload), batch_size):
-        batch = segment_payload[start_idx:start_idx + batch_size]
-        by_index.update(_translate_tc1_batch(client, lang_name, batch))
+    by_index = _transcribe_translate_tc1_from_audio(client, audio_path, lang_name, timing_segments)
 
     segments = []
-    suspicious = []
     for i, ws in enumerate(whisper_segs):
         gs = by_index.get(i, {})
         segment = {
             "id": i,
             "start": ws["start"],
             "end": ws["end"],
-            "original": (gs.get("original") or ws["text"] or "").strip(),
+            "original": (gs.get("original") or "").strip(),
             "vi_full": (gs.get("vi_full") or "").strip(),
             "keywords": [],
         }
+        if not segment["original"]:
+            segment["original"] = ws["text"]
         if _looks_bad_vi_full(segment["vi_full"]):
-            suspicious.append({"index": i, **segment})
+            segment["vi_full"] = ""
         segments.append(segment)
-
-    if suspicious:
-        repaired = _repair_tc1_bad_segments(client, lang_name, suspicious)
-        for seg in segments:
-            fixed = repaired.get(seg["id"])
-            if not fixed:
-                continue
-            if fixed.get("vi_full") and not _looks_bad_vi_full(fixed.get("vi_full")):
-                seg["vi_full"] = fixed["vi_full"].strip()
 
     keyword_batch_size = 12
     for start_idx in range(0, len(segments), keyword_batch_size):
