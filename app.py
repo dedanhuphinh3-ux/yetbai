@@ -123,6 +123,27 @@ def _looks_bad_vi_full(text: str) -> bool:
     return False
 
 
+def _align_full_audio_items_to_segments(items: list[dict], segment_count: int) -> list[dict]:
+    if segment_count <= 0:
+        return []
+    cleaned = [item for item in items if isinstance(item, dict) and ((item.get("original") or "").strip() or (item.get("vi_full") or "").strip())]
+    if not cleaned:
+        return [{} for _ in range(segment_count)]
+    if len(cleaned) == segment_count:
+        return cleaned
+    aligned = []
+    if len(cleaned) > segment_count:
+        for i in range(segment_count):
+            src_idx = round(i * (len(cleaned) - 1) / max(1, segment_count - 1)) if segment_count > 1 else 0
+            aligned.append(cleaned[src_idx])
+        return aligned
+    # len(cleaned) < segment_count: stretch items across remaining timing slots
+    for i in range(segment_count):
+        src_idx = round(i * (len(cleaned) - 1) / max(1, segment_count - 1)) if segment_count > 1 else 0
+        aligned.append(cleaned[src_idx])
+    return aligned
+
+
 def _tc1_generate_with_fallback(client, prompt: str):
     last_error = None
     for model_name in TC1_GEMINI_MODELS:
@@ -136,44 +157,48 @@ def _tc1_generate_with_fallback(client, prompt: str):
     raise last_error or RuntimeError("Không có Gemini model khả dụng cho TC1")
 
 
-def _transcribe_tc1_from_audio(client, audio_path: str, lang_name: str, timing_segments: list[dict]) -> dict[int, dict]:
-    if not timing_segments:
-        return {}
-    payload = [
-        {
-            "index": s["index"],
-            "start": s.get("start"),
-            "end": s.get("end"),
-        }
-        for s in timing_segments
-    ]
+def _understand_tc1_full_audio(client, audio_path: str, lang_name: str, timing_segments: list[dict]) -> list[dict]:
     uploaded = client.files.upload(file=audio_path)
     try:
-        prompt = f"""Bạn đang xử lý subtitle audio.
+        timing_hint = {
+            "segment_count": len(timing_segments),
+            "timing": [
+                {"index": s["index"], "start": s.get("start"), "end": s.get("end")}
+                for s in timing_segments
+            ]
+        }
+        prompt = f"""Bạn đang làm subtitle cho toàn bộ file audio.
 Ngôn ngữ chính của audio: {lang_name}
 
-Audio đính kèm mới là SOURCE OF TRUTH cho nội dung nói.
-Danh sách segment bên dưới chỉ dùng để GIỮ KHUNG index/timecode.
+Audio đính kèm là SOURCE OF TRUTH cho nội dung nói.
+Whisper chỉ dùng để cung cấp MỐC TIMECODE, không dùng để quyết định nghĩa.
 
-Nhiệm vụ DUY NHẤT:
-- Nghe audio đính kèm.
-- Với mỗi `index`, trả về `original` là câu gốc / transcript đúng nhất có thể theo audio.
+Nhiệm vụ:
+- Nghe TOÀN BỘ file audio.
+- Chia nội dung thành dãy câu/đơn vị lời nói theo đúng thứ tự xuất hiện.
+- Với mỗi item, trả về:
+  1. `seq`: số thứ tự liên tục từ 0
+  2. `original`: câu gốc / transcript bằng ngôn ngữ đang nói
+  3. `vi_full`: bản dịch tiếng Việt ĐÚNG VÀ ĐỦ Ý
+  4. `keywords`: 1-3 keyword quan trọng rút từ đúng nghĩa câu đó
 
-Quy tắc bắt buộc:
-- Giữ nguyên số lượng object và đúng `index` như input.
-- Chỉ transcript câu gốc, KHÔNG dịch ở bước này.
-- Dựa vào AUDIO để hiểu câu, không phụ thuộc transcript giả định bên ngoài.
-- Nếu segment ngắn, vẫn cố transcript đủ nhất có thể.
+Quy tắc cực kỳ quan trọng:
+- Ưu tiên ĐÚNG và ĐỦ hơn là ngắn.
+- Không được bỏ ý giữa chừng.
+- Không được nhảy thẳng tới câu cuối rồi bỏ qua các câu giữa.
+- Có thể viết `vi_full` dài hơn nếu cần để đủ nghĩa.
+- Không văn vẻ hóa, không bịa thêm bối cảnh.
+- Giữ đúng trình tự nội dung audio.
 - Chỉ trả JSON array, không markdown.
 
-Input segments:
-{json.dumps(payload, ensure_ascii=False)}
+Đây là timing hint để bạn biết audio có khoảng bao nhiêu đơn vị lời nói:
+{json.dumps(timing_hint, ensure_ascii=False)}
 
 Output schema:
-[{{"index":0,"original":"..."}}]"""
+[{{"seq":0,"original":"...","vi_full":"...","keywords":[{{"original":"...","vi":"..."}}]}}]"""
         resp = _tc1_generate_with_fallback(client, [uploaded, prompt])
-        translated = json.loads(_unwrap_json_text(resp.text))
-        return {int(item.get("index", -1)): item for item in translated if isinstance(item, dict)}
+        data = json.loads(_unwrap_json_text(resp.text))
+        return [item for item in data if isinstance(item, dict)]
     finally:
         try:
             client.files.delete(name=uploaded.name)
@@ -273,38 +298,25 @@ def tc1_process(audio_path: str, language: str, gemini_key: str) -> dict:
         for i, ws in enumerate(whisper_segs)
     ]
 
-    by_index = _transcribe_tc1_from_audio(client, audio_path, lang_name, timing_segments)
+    full_audio_items = _understand_tc1_full_audio(client, audio_path, lang_name, timing_segments)
+    if not full_audio_items:
+        raise RuntimeError("Gemini không trả được transcript/dịch từ audio")
+    aligned_items = _align_full_audio_items_to_segments(full_audio_items, len(whisper_segs))
 
     segments = []
     for i, ws in enumerate(whisper_segs):
-        gs = by_index.get(i, {})
+        src = aligned_items[i] if i < len(aligned_items) else {}
         segment = {
             "id": i,
             "start": ws["start"],
             "end": ws["end"],
-            "original": (gs.get("original") or ws["text"] or "").strip(),
-            "vi_full": "",
-            "keywords": [],
+            "original": (src.get("original") or ws["text"] or "").strip(),
+            "vi_full": (src.get("vi_full") or "").strip(),
+            "keywords": src.get("keywords", []) if isinstance(src.get("keywords"), list) else [],
         }
+        if _looks_bad_vi_full(segment["vi_full"]):
+            segment["vi_full"] = ""
         segments.append(segment)
-
-    translate_batch_size = 10
-    for start_idx in range(0, len(segments), translate_batch_size):
-        batch = segments[start_idx:start_idx + translate_batch_size]
-        vi_map = _translate_tc1_from_transcript_batch(client, lang_name, batch)
-        for seg in batch:
-            vi = (vi_map.get(seg["id"]) or "").strip()
-            if not _looks_bad_vi_full(vi):
-                seg["vi_full"] = vi
-
-    keyword_batch_size = 12
-    for start_idx in range(0, len(segments), keyword_batch_size):
-        batch = segments[start_idx:start_idx + keyword_batch_size]
-        keyword_map = _extract_tc1_keywords_batch(client, lang_name, batch)
-        for seg in batch:
-            kws = keyword_map.get(seg["id"])
-            if isinstance(kws, list):
-                seg["keywords"] = kws
 
     return {"segments": segments, "language": detected_lang}
 
