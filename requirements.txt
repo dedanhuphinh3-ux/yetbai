@@ -3,3 +3,4 @@ openai==1.93.0
 google-genai
 gunicorn
 pillow
+httpx<0.28
