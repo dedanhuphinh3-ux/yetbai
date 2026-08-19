@@ -252,10 +252,10 @@ input[type=range] { width: 100%; accent-color: #7c3aed; }
               <div class="range-row"><label>Contrast</label><input type="range" id="contrastRange" min="80" max="140" value="104" oninput="syncRange('contrast')"><span id="contrastVal">104</span></div>
               <div class="range-row"><label>Color</label><input type="range" id="colorRange" min="80" max="140" value="102" oninput="syncRange('color')"><span id="colorVal">102</span></div>
               <div>
-                <label>Scale output</label>
+                <label>Scale output <small style="color:#f87171;font-weight:normal">(2x rất chậm)</small></label>
                 <select id="outscaleSelect">
-                  <option value="1">Giữ nguyên size</option>
-                  <option value="2">Phóng 2x</option>
+                  <option value="1" selected>Giữ nguyên size (khuyến nghị)</option>
+                  <option value="2">Phóng 2x (chậm hơn nhiều)</option>
                 </select>
               </div>
               <div class="note-box"><strong>ESRGAN / chỉnh mức:</strong> Cho phép giảm cảm giác AI đè quá tay bằng cách blend và chỉnh sharpness/contrast/color.</div>
@@ -588,7 +588,7 @@ async function handleImageResponse(res) {
 async function pollEsrganJob(jobId, labelEl) {
   let elapsed = 0;
   const step = document.getElementById('enhanceProgressStep');
-  while (elapsed < 360) {
+  while (elapsed < 600) {
     await new Promise(r => setTimeout(r, 5000));
     elapsed += 5;
     if (labelEl) labelEl.textContent = `🎛️ ESRGAN đang xử lý... (${elapsed}s)`;
@@ -607,7 +607,7 @@ async function pollEsrganJob(jobId, labelEl) {
     const d = await res.json();
     if (d.status === 'error') throw new Error(d.error || 'ESRGAN lỗi');
   }
-  throw new Error('ESRGAN timeout — ảnh quá lớn hoặc server bận');
+  throw new Error('ESRGAN timeout — thử lại với Scale "Giữ nguyên size" hoặc ảnh nhỏ hơn');
 }
 function resetEnhance() {
   selectedImage = null;
