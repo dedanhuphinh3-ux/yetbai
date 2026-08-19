@@ -281,17 +281,15 @@ def tc1_process(audio_path: str, language: str, gemini_key: str) -> dict:
         group_original = (src.get("original") or " ".join(group.get("texts", [])) or "").strip()
         group_vi = (src.get("vi_full") or "").strip()
         group_keywords = src.get("keywords", []) if isinstance(src.get("keywords"), list) else []
-        for i in range(group["start_idx"], group["end_idx"] + 1):
-            ws = whisper_segs[i]
-            segment = {
-                "id": i,
-                "start": ws["start"],
-                "end": ws["end"],
-                "original": group_original,
-                "vi_full": group_vi if not _looks_bad_vi_full(group_vi) else "",
-                "keywords": group_keywords,
-            }
-            segments.append(segment)
+        segment = {
+            "id": gidx,
+            "start": group["start"],
+            "end": group["end"],
+            "original": group_original,
+            "vi_full": group_vi if not _looks_bad_vi_full(group_vi) else "",
+            "keywords": group_keywords,
+        }
+        segments.append(segment)
 
     return {"segments": segments, "language": detected_lang}
 

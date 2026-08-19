@@ -188,7 +188,7 @@ input[type=range] { width: 100%; accent-color: #7c3aed; }
           <button class="btn btn-teal" id="processBtn2" disabled onclick="startProcess()">✨ Xử lý + Cleanup</button>
         </div>
         <div class="file-info" id="fileName"></div>
-        <div class="note-box" id="tc1Note"><strong>TC1:</strong> Whisper lấy timecode + Gemini dịch và bóc keyword.</div>
+        <div class="note-box" id="tc1Note"><strong>TC1:</strong> Whisper chỉ giữ timecode, Gemini dịch theo cụm nội dung rồi mới bóc keyword.</div>
         <div class="note-box hidden" id="tc2Note"><strong>TC2:</strong> Tự động transcribe tiếng Việt và cleanup filler words/cách viết.</div>
       </div>
 
@@ -404,7 +404,7 @@ async function startProcess() {
   const language = document.getElementById('langSelect').value;
   document.getElementById('uploadSection').style.display = 'none';
   document.getElementById('progressCard').classList.add('show');
-  const stepMsg = currentTool === 'tc1' ? 'Bước 1: Whisper lấy timecode · Bước 2: Gemini transcribe + dịch' : 'Whisper đang nghe audio tiếng Việt...';
+  const stepMsg = currentTool === 'tc1' ? 'Bước 1: Whisper lấy timecode · Bước 2: Gemini dịch theo cụm nội dung' : 'Whisper đang nghe audio tiếng Việt...';
   setProgress(currentTool === 'tc1' ? '🎙️ Đang xử lý audio...' : '🎵 Đang transcribe tiếng Việt...', stepMsg);
   try {
     const formData = new FormData();
@@ -415,7 +415,7 @@ async function startProcess() {
     const uploadData = await uploadRes.json();
     if (uploadData.error) throw new Error(uploadData.error);
     currentJobId = uploadData.job_id;
-    if (currentTool === 'tc1') setProgress('🧠 Gemini đang dịch và bóc keyword...', 'Thường 30s - 2 phút');
+    if (currentTool === 'tc1') setProgress('🧠 Gemini đang dịch theo cụm và bóc keyword...', 'Thường 30s - 2 phút');
     const processRes = await fetch(`/api/process/${currentJobId}`, {
       method:'POST', headers:{'Content-Type':'application/json'},
       body: JSON.stringify({audio_path: uploadData.audio_path, tool: currentTool, language, gemini_key: localStorage.getItem(LS_KEY) || ''})
