@@ -97,49 +97,133 @@ def transcribe_whisper_api(audio_path: str, language: str = None) -> dict:
 
 # ── TC1: Khmer / Multilingual ─────────────────────────────────────────────────
 
+def _unwrap_json_text(text: str) -> str:
+    text = (text or "").strip()
+    if text.startswith("```"):
+        lines = text.splitlines()
+        if len(lines) >= 3:
+            text = "\n".join(lines[1:-1]).strip()
+    return text
+
+
+def _looks_bad_vi_full(text: str) -> bool:
+    t = (text or "").strip()
+    if not t:
+        return True
+    if re.fullmatch(r"[\d\s\.,:/\\-]+", t):
+        return True
+    if len(t) < 5:
+        return True
+    return False
+
+
+def _repair_tc1_bad_segments(client, lang_name: str, segments: list[dict]) -> dict[int, dict]:
+    if not segments:
+        return {}
+    repair_payload = [
+        {
+            "index": s["index"],
+            "original": s["original"],
+            "broken_vi_full": s.get("vi_full", ""),
+        }
+        for s in segments
+    ]
+    prompt = f"""Bạn là biên dịch viên subtitle rất kỹ tính.
+Ngôn ngữ gốc: {lang_name}
+Nhiệm vụ: sửa lại các câu tiếng Việt bị thiếu / sai / cụt.
+
+Yêu cầu cực kỳ quan trọng:
+- `vi_full` phải là câu tiếng Việt đầy đủ ý của câu gốc, không được rút gọn.
+- Không trả về số vô nghĩa, không trả về fragment cụt.
+- `keywords`: 1-3 keyword/phrase ngắn, lấy từ ý nghĩa thật của câu.
+- Giữ đúng `index`.
+- Chỉ trả JSON array, không markdown.
+
+Input:
+{json.dumps(repair_payload, ensure_ascii=False)}
+
+Output schema:
+[{{"index":0,"vi_full":"...","keywords":[{{"original":"...","vi":"..."}}]}}]"""
+    resp = client.models.generate_content(model=GEMINI_MODEL, contents=prompt)
+    repaired = json.loads(_unwrap_json_text(resp.text))
+    return {int(item.get("index", -1)): item for item in repaired if isinstance(item, dict)}
+
+
 def tc1_process(audio_path: str, language: str, gemini_key: str) -> dict:
     whisper_result = transcribe_whisper_api(audio_path, language if language != "auto" else None)
     whisper_segs = whisper_result["segments"]
     detected_lang = whisper_result["language"]
 
     client = genai.Client(api_key=gemini_key)
-    uploaded = client.files.upload(file=audio_path)
     lang_name = LANG_NAMES.get(detected_lang, detected_lang)
-    n = len(whisper_segs)
+    segment_payload = [
+        {
+            "index": i,
+            "start": ws["start"],
+            "end": ws["end"],
+            "original": ws["text"],
+        }
+        for i, ws in enumerate(whisper_segs)
+    ]
+    n = len(segment_payload)
 
-    prompt = f"""Expert multilingual subtitle creator.
-Audio language: {lang_name}. Target: {n} segments.
+    prompt = f"""Bạn là chuyên gia làm subtitle đa ngôn ngữ.
+Ngôn ngữ gốc: {lang_name}
+Dữ liệu đầu vào bên dưới đã được chia segment sẵn từ Whisper. Hãy GIỮ NGUYÊN số segment và THỨ TỰ segment. Đừng tự gộp, đừng tự tách, đừng bỏ segment nào.
 
-For each segment return:
-1. original: NATIVE SCRIPT (Khmer: ភាសាខ្មែរ NOT romanization)
-2. vi_full: full natural Vietnamese translation
-3. keywords: 1-3 key phrases (USP, benefits, numbers, brand names)
+Với mỗi segment, hãy trả về:
+1. `index`: giữ nguyên index đầu vào
+2. `original`: nguyên văn câu gốc bằng native script, ưu tiên giữ đúng theo input
+3. `vi_full`: câu tiếng Việt FULL, đủ ý, tự nhiên; tuyệt đối không rút gọn thành fragment
+4. `keywords`: 1-3 keyword/phrase quan trọng của segment đó, schema {{"original":"...","vi":"..."}}
 
-JSON array only (no markdown):
-[{{"original":"...","vi_full":"...","keywords":[{{"original":"...","vi":"..."}}]}}]
-Match {n} segments."""
+Quy tắc bắt buộc:
+- `vi_full` phải dịch trọn ý câu gốc.
+- Không được trả số vô nghĩa, không được viết cụt lủn.
+- Nếu câu gốc ngắn thì vẫn phải là một câu/dòng tiếng Việt hợp nghĩa.
+- Chỉ trả JSON array, không markdown, không giải thích.
+- Phải trả đúng {n} object theo đúng thứ tự input.
 
-    resp = client.models.generate_content(model=GEMINI_MODEL, contents=[uploaded, prompt])
-    text = resp.text.strip()
-    if text.startswith("```"):
-        text = "\n".join(text.split("\n")[1:-1]).strip()
-    gemini_segs = json.loads(text)
-    try:
-        client.files.delete(name=uploaded.name)
-    except Exception:
-        pass
+Input segments:
+{json.dumps(segment_payload, ensure_ascii=False)}
+
+Output schema:
+[{{"index":0,"original":"...","vi_full":"...","keywords":[{{"original":"...","vi":"..."}}]}}]"""
+
+    resp = client.models.generate_content(model=GEMINI_MODEL, contents=prompt)
+    gemini_segs = json.loads(_unwrap_json_text(resp.text))
+    by_index = {
+        int(item.get("index", idx)): item
+        for idx, item in enumerate(gemini_segs)
+        if isinstance(item, dict)
+    }
 
     segments = []
+    suspicious = []
     for i, ws in enumerate(whisper_segs):
-        gs = gemini_segs[i] if i < len(gemini_segs) else {}
-        segments.append({
+        gs = by_index.get(i, {})
+        segment = {
             "id": i,
             "start": ws["start"],
             "end": ws["end"],
-            "original": gs.get("original", ws["text"]),
-            "vi_full": gs.get("vi_full", ""),
+            "original": (gs.get("original") or ws["text"] or "").strip(),
+            "vi_full": (gs.get("vi_full") or "").strip(),
             "keywords": gs.get("keywords", []),
-        })
+        }
+        if _looks_bad_vi_full(segment["vi_full"]):
+            suspicious.append({"index": i, **segment})
+        segments.append(segment)
+
+    if suspicious:
+        repaired = _repair_tc1_bad_segments(client, lang_name, suspicious)
+        for seg in segments:
+            fixed = repaired.get(seg["id"])
+            if not fixed:
+                continue
+            if fixed.get("vi_full") and not _looks_bad_vi_full(fixed.get("vi_full")):
+                seg["vi_full"] = fixed["vi_full"].strip()
+            if isinstance(fixed.get("keywords"), list) and fixed.get("keywords"):
+                seg["keywords"] = fixed["keywords"]
 
     return {"segments": segments, "language": detected_lang}
 
